@@ -1,52 +1,64 @@
 using UnityEngine;
+using UnityEngine.Events;
 
 /// <summary>
-/// 碰到玩家就把玩家送回出生点。
-/// 用法：挂在带 Collider2D 且勾了 Is Trigger 的物体上（齿轮、尖刺预制体）。
-/// spawnPoint 留空时，会自动在场景里找名叫 "Spawn" 的物体。
+/// 陷阱（齿轮/尖刺/深坑）：碰到 → 走 PlayerHealth2D 的死亡流程
+/// （掉血/定格/回到上一次起跳的位置重生/无敌帧/事件全部生效）。
+/// damage 填 1 = 掉血刺（带击退），填 99 = 碰到即死（齿轮、深坑）。
+/// 玩家身上没挂 PlayerHealth2D 时，退化为原版行为：直接传送回重生点。
 /// </summary>
 [RequireComponent(typeof(Collider2D))]
 public class Hazard2D : MonoBehaviour
 {
-    [Header("重生点（留空则自动找场景里名为 Spawn 的物体）")]
+    [Header("伤害：1=掉血刺（带击退），99=即死")]
+    public int damage = 99;
+
+    [Header("击退（掉血型用；即死型用不到）")]
+    public float knockbackX = 8f;
+    public float knockbackY = 6f;
+
+    [Header("兜底重生点（仅玩家没挂 PlayerHealth2D 时使用）")]
     public Transform spawnPoint;
 
-    [Header("两次触发的最短间隔（秒），防止连续触发")]
+    [Header("事件（可拖 ClockProgress.ResetProgress 等惩罚）")]
+    public UnityEvent onHit;
+
+    [Header("兜底路径的防重复触发间隔")]
     public float cooldown = 0.5f;
 
     float timer;
 
-    void Update()
-    {
-        if (timer > 0f) timer -= Time.deltaTime;
-    }
+    void Update() { if (timer > 0f) timer -= Time.deltaTime; }
 
-    void OnTriggerEnter2D(Collider2D other) { TryKill(other); }
-    void OnTriggerStay2D(Collider2D other) { TryKill(other); }
+    void OnTriggerEnter2D(Collider2D other) { TryHit(other); }
+    void OnTriggerStay2D(Collider2D other)  { TryHit(other); }
 
-    void TryKill(Collider2D other)
+    void TryHit(Collider2D other)
     {
-        if (timer > 0f) return;
         if (!other.CompareTag("Player")) return;
 
-        Transform target = spawnPoint != null ? spawnPoint : FindSpawn();
-        if (target == null)
+        // ---- 主路径：走生命系统（无敌帧自动节流，不需要自己的冷却）----
+        var health = other.GetComponent<PlayerHealth2D>();
+        if (health != null)
         {
-            Debug.LogWarning("Hazard2D：没找到重生点。请在 spawnPoint 拖一个物体，或建一个名叫 Spawn 的空物体。");
+            float dir = Mathf.Sign(other.transform.position.x - transform.position.x);
+            if (dir == 0f) dir = 1f;
+            health.TakeDamage(damage, new Vector2(dir * knockbackX, knockbackY));
+            onHit.Invoke();
             return;
         }
 
+        // ---- 兜底：没生命系统就按原版，传送回重生点 ----
+        if (timer > 0f) return;
+        Transform target = spawnPoint != null ? spawnPoint : FindSpawn();
+        if (target == null)
+        {
+            Debug.LogWarning("Hazard2D：玩家没挂 PlayerHealth2D，也没找到重生点（spawnPoint 或名为 Spawn 的物体）。");
+            return;
+        }
         Rigidbody2D rb = other.attachedRigidbody;
-        if (rb != null)
-        {
-            rb.velocity = Vector2.zero;
-            rb.position = target.position;
-        }
-        else
-        {
-            other.transform.position = target.position;
-        }
-
+        if (rb != null) { rb.velocity = Vector2.zero; rb.position = target.position; }
+        else other.transform.position = target.position;
         timer = cooldown;
     }
 
