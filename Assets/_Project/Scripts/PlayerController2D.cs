@@ -28,9 +28,13 @@ public static class TouchInput
 [RequireComponent(typeof(Collider2D))]
 public class PlayerController2D : MonoBehaviour
 {
-    [Header("能力解锁（默认锁定，道具或 F1/F2 解锁）")]
+    [Header("能力解锁（默认锁定，道具或 F1/F2/F3 解锁）")]
+    [Tooltip("二段跳。默认关；勾上 = 空中还能再跳一次。")]
     public bool canDoubleJump = false;
+    [Tooltip("冲刺。默认关；勾上 = 可以横向或斜向冲一段。")]
     public bool canDash = false;
+    [Tooltip("蹬墙跳 + 贴墙下滑。默认关；勾上 = 贴墙时下落变慢，并且能蹬着墙往外跳。\n注意：这一个开关同时管两件事，关掉时贴墙就是正常掉落。")]
+    public bool canWallJump = false;
 
     [Header("移动")]
     public float moveSpeed = 8f;
@@ -95,13 +99,15 @@ public class PlayerController2D : MonoBehaviour
     [Header("临时测试键（正式版删除 Update 里对应两行）")]
     public KeyCode testUnlockJumpKey = KeyCode.F1;
     public KeyCode testUnlockDashKey = KeyCode.F2;
+    public KeyCode testUnlockWallJumpKey = KeyCode.F3;
 
     // ---- 内部状态 ----
     Rigidbody2D rb;
     SpriteRenderer sr;
     Collider2D col;
     ContactFilter2D groundFilter;
-    readonly RaycastHit2D[] hits = new RaycastHit2D[4];
+    readonly RaycastHit2D[] hits = new RaycastHit2D[8];   // v9: 4 → 8，贴住多格时够用
+    float airPeakY;                       // v11: 这一跳在空中的最高点（世界 y），用来算落差
 
     int lastDir = 1;
     float coyoteTimer, jumpBufferTimer;
@@ -122,6 +128,13 @@ public class PlayerController2D : MonoBehaviour
 
     public void UnlockDoubleJump() { canDoubleJump = true;  Debug.Log("[能力] 解锁二段跳！"); }
     public void UnlockDash()       { canDash = true;        Debug.Log("[能力] 解锁冲刺！"); }
+    public void UnlockWallJump()   { canWallJump = true;    Debug.Log("[能力] 解锁蹬墙跳！"); }
+
+    /// <summary>
+    /// 这一跳的落差（单位：格）= 空中最高点 - 当前位置。
+    /// 刚落地的那一瞬间读它，就是“这次从多高掉下来”。
+    /// </summary>
+    public float FallDistance { get { return Mathf.Max(0f, airPeakY - rb.position.y); } }
 
     void Awake()
     {
@@ -130,6 +143,29 @@ public class PlayerController2D : MonoBehaviour
         col = GetComponent<Collider2D>();
         rb.freezeRotation = true;
         dashAvailable = true;
+
+        // v10: 玩家碰撞体强制用“0 摩擦”的物理材质。
+        // 为什么：默认摩擦 0.4，按住朝墙的方向下落时，摩擦力会把下落“拽住”，
+        // 看起来就是粘在墙上/挂在墙上。摩擦设 0 之后贴墙跌落就干净了。
+        if (col.sharedMaterial == null || col.sharedMaterial.friction != 0f)
+        {
+            var mat = new PhysicsMaterial2D("PlayerNoFriction");
+            mat.friction = 0f;      // 不打滑的元凶
+            mat.bounciness = 0f;    // 不要弹
+            col.sharedMaterial = mat;
+        }
+    }
+
+    // v9: 只在“面朝检测方向”的碰撞面算命中。
+    // 为什么需要它：胶囊碰撞体底下是个圆弧，蹭到方块边缘或墙顶角时，
+    // 圆弧的斜侧面也会被 Cast 命中，于是“明明没踩实”却被当成站在地上。
+    // 这里要求法线跟检测方向相反、且夹角够正（dot ≥ minDot），斜侧面就会被丢掉。
+    bool CastHasSurface(Vector2 dir, float dist, float minDot)
+    {
+        int n = col.Cast(dir, groundFilter, hits, dist);
+        for (int i = 0; i < n; i++)
+            if (Vector2.Dot(hits[i].normal, -dir) >= minDot) return true;
+        return false;
     }
 
     void Update()
@@ -139,6 +175,7 @@ public class PlayerController2D : MonoBehaviour
         // ---- 0. 临时测试键 ----
         if (Input.GetKeyDown(testUnlockJumpKey)) UnlockDoubleJump();
         if (Input.GetKeyDown(testUnlockDashKey)) UnlockDash();
+        if (Input.GetKeyDown(testUnlockWallJumpKey)) UnlockWallJump();   // v8: 测试键 F3
 
         jumpBufferTimer -= dt;
         dashCdTimer -= dt;
@@ -167,13 +204,20 @@ public class PlayerController2D : MonoBehaviour
         groundFilter.layerMask = groundLayer;
         groundFilter.useTriggers = false;
         bool grounded = rb.velocity.y <= 0.5f
-                        && col.Cast(Vector2.down, groundFilter, hits, groundCastDistance) > 0;
+                        && CastHasSurface(Vector2.down, groundCastDistance, 0.5f);   // v9: 只认朝上的面
         wallDir = 0;
-        if (!grounded && (enableWallSlide || enableWallJump))
+        if (!grounded && canWallJump && (enableWallSlide || enableWallJump))   // v8: 未解锁则不识别墙面
         {
-            if (col.Cast(Vector2.right, groundFilter, hits, wallCheckDist) > 0)      wallDir = 1;
-            else if (col.Cast(Vector2.left, groundFilter, hits, wallCheckDist) > 0)  wallDir = -1;
+            if (CastHasSurface(Vector2.right, wallCheckDist, 0.5f))      wallDir = 1;   // v9: 只认竖直墙面
+            else if (CastHasSurface(Vector2.left, wallCheckDist, 0.5f))  wallDir = -1;
         }
+
+        // v11: 记录“这一跳的空中最高点”。
+        // 用途：可打碎的砖块要判断“你是不是从很高的地方砸下来”。
+        // 注意不能直接用下落速度——终端速度 16 格/秒在掉 0.6 格时就到了，
+        // 从 1 格掉和从 50 格掉，速度完全一样。落差才是可靠的量。
+        if (grounded) airPeakY = rb.position.y;
+        else airPeakY = Mathf.Max(airPeakY, rb.position.y);
 
         // ---- 4. 落地：刷新土狼/二段跳；冲刺延迟后填充 ----
         if (grounded && !isDashing)
@@ -285,6 +329,8 @@ public class PlayerController2D : MonoBehaviour
         jumpBufferTimer = 0f;
         coyoteTimer = 0f;
         groundDashJumpTimer = 0f;
+
+        MusicConductor.Play(Instrument.Harp);       // v13: 跳跃 → 里拉琴（v2 配器对调：最频繁的动作用最柔的音）
     }
 
     // 超级跳：地面冲刺后马上起跳，水平速度远超跑速（v6）
@@ -296,6 +342,7 @@ public class PlayerController2D : MonoBehaviour
         jumpBufferTimer = 0f;
         coyoteTimer = 0f;
         groundDashJumpTimer = 0f;
+        MusicConductor.Play(Instrument.BassDrum);   // v12: 超级跳 → 大鼓
         Debug.Log("[超级跳]");
     }
 
@@ -311,6 +358,8 @@ public class PlayerController2D : MonoBehaviour
         jumpBufferTimer = 0f;
         if (sr != null) sr.flipX = wallDirSide == 1;
         wallFacingTimer = wallJumpFacingTime;   // v7: 锁住朝向，防止同帧第 13 步把它改回去
+
+        MusicConductor.Play(Instrument.Violin);   // v12: 蹬墙跳 → 小提琴
     }
 
     void StartDash(Vector2 d)
@@ -322,6 +371,8 @@ public class PlayerController2D : MonoBehaviour
         dashAvailable = false;
         dashRefillTimer = dashRefillDelay;
         dashBufferTimer = 0f;               // 消费掉缓冲
+
+        MusicConductor.Play(Instrument.Trumpet);   // v12: 冲刺 → 小号
         dashStartedOnGround = coyoteTimer > 0f;   // 记录：地面起冲才能接超级跳
         airJumpsUsed = 0;
         varJumpTimer = 0f;

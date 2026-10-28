@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 1377392638499114751}
   - component: {fileID: 6798083910002530280}
   - component: {fileID: 8832666165406481471}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: Gear_Hazard
   m_TagString: Untagged
   m_Icon: {fileID: 0}
