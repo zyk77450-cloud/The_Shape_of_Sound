@@ -10,20 +10,27 @@ using UnityEngine.Events;
 [RequireComponent(typeof(Collider2D))]
 public class Hazard2D : MonoBehaviour
 {
-    [Header("伤害：1=掉血刺（带击退），99=即死")]
+    [Header("伤害")]
+    [Tooltip("1 = 掉血刺（扣血 + 击退，玩家还能活）\n99 = 碰到即死（齿轮、深坑）\n推荐：尖刺填 1，齿轮和深坑填 99")]
     public int damage = 99;
 
-    [Header("击退（掉血型用；即死型用不到）")]
+    [Header("击退（只有 damage=1 的掉血型会用到）")]
+    [Tooltip("被扎后往侧面弹开的速度（单位：格/秒）。\n调大 = 弹得更远；调小 = 只轻轻一推。\n推荐 6~10")]
     public float knockbackX = 8f;
+
+    [Tooltip("被扎后往上弹的速度（单位：格/秒）。\n调大 = 弹得更高；调小 = 弹不起来。\n推荐 4~7")]
     public float knockbackY = 6f;
 
-    [Header("兜底重生点（仅玩家没挂 PlayerHealth2D 时使用）")]
+    [Header("兜底重生点（只在玩家没挂 PlayerHealth2D 时用）")]
+    [Tooltip("留空即可。\n只有玩家身上没挂生命值脚本时，才会退回到这里指定的位置复活。\n一般不用填，脚本会自动去找名叫 Spawn 的物体。")]
     public Transform spawnPoint;
 
-    [Header("事件（可拖 ClockProgress.ResetProgress 等惩罚）")]
+    [Header("事件")]
+    [Tooltip("受伤时额外触发的事情，可以在这里拖入别的物体上的方法。\n例如拖 ClockProgress 的 ResetProgress，做成「被扎就清空进度」的惩罚。\n不填就什么都不额外发生。")]
     public UnityEvent onHit;
 
     [Header("兜底路径的防重复触发间隔")]
+    [Tooltip("只有走「兜底传送」流程时才会用到，防止一帧触发好几次。\n调大 = 触发后更久才允许再次触发；调小 = 更容易连续触发。\n推荐保持 0.5")]
     public float cooldown = 0.5f;
 
     float timer;
