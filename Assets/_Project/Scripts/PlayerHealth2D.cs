@@ -16,6 +16,7 @@ public class PlayerHealth2D : MonoBehaviour
     public int Current { get; private set; }
     
     [Header("重生点安全检查")]
+    [Tooltip("危险物所在的层，一般勾 Hazard。\n作用：重生前检查\"上次站的地方\"附近有没有陷阱，有就改回出生点，防止重生即死。")]
     public LayerMask hazardLayer;             // 只勾 Hazard
     public float hazardCheckRadius = 0.8f;    // 检查半径（约玩家半身）
     public Transform fallbackSpawn;           // 终极兜底出生点；留空自动找名为 Spawn 的物体
@@ -27,6 +28,7 @@ public class PlayerHealth2D : MonoBehaviour
     public float respawnLiftUp = 0.2f;         // 重生点向上抬一点，防卡地里
 
     [Header("地面记录（与 PlayerController 的设置保持一致）")]
+    [Tooltip("地面所在的层，一般勾 Ground。\n留空也可以：会自动跟随 PlayerController2D 上已经配好的 Ground 层。\n⚠️ 如果两者都是空，重生点会一直停在出生点（表现为\"每次都重生在很远的地方\"）。")]
     public LayerMask groundLayer;              // 只勾 Ground
     public float groundCastDistance = 0.1f;
 
@@ -52,6 +54,17 @@ public class PlayerHealth2D : MonoBehaviour
         col = GetComponent<Collider2D>();
         sr = GetComponent<SpriteRenderer>();
         pc = GetComponent<PlayerController2D>();
+
+        // ---- v14: Layer 自动兜底，避免忘记在 Inspector 里配 ----
+        // 症状：Ground Layer 留空 → 每帧检测不到地面 → 重生点永远停在出生点
+        if (groundLayer.value == 0 && pc != null)
+            groundLayer = pc.groundLayer;                  // 跟随控制器的 Ground 层
+        if (hazardLayer.value == 0)
+            hazardLayer = LayerMask.GetMask("Hazard");      // 自动找名为 Hazard 的层
+        if (groundLayer.value == 0)
+            Debug.LogWarning("[重生] Ground Layer 为 None，重生点会一直停在出生点。" +
+                             "请给 PlayerHealth2D 的 Ground Layer 勾上 Ground（或确认 PlayerController2D 里配了）。");
+
         groundFilter.useLayerMask = true;
         groundFilter.layerMask = groundLayer;
         groundFilter.useTriggers = false;
