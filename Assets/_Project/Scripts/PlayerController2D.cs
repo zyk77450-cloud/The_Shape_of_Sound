@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 // ============================================================
@@ -15,20 +16,24 @@ public static class TouchInput
 }
 
 // ============================================================
-// ② PlayerController2D v6：蔚蓝式手感
-//    v6 相比 v5 新增（来自参考 PlayerController 的 4 件套）：
-//    - 跳跃水平冲量（移动中起跳带惯性）
-//    - 冲刺输入缓冲（按早 0.08s 不吞键）
-//    - 超级跳：地面冲刺后 0.15s 内起跳 = 大水平速度
-//    - 蹬墙锁定仅在按住方向时生效
-//    v5 已有：VarJump 窗口、下落上限、加/减速分离、冲刺动量保留、
-//    冲刺填充延迟、蹭墙下滑+蹬墙跳、顿帧、残影、能力解锁。
+// ② PlayerController2D v19
+//    v19：单向平台下穿改为"按间隙恢复碰撞"——0.35s 只是开始检查的
+//         最早时间，和平台间隙 > 0.2 才恢复，否则 0.05s 后再查；
+//         修复人还卡在板子里时恢复碰撞被弹飞（回弹 bug）。
+//    v18：水中水阻修复（速度永远收敛）；水面单向平台 + 按 S 下穿。
+//    v17：划水吃跳跃缓冲；浅水/池底按跳=满力正常跳。
+//    v16：水中起跳上升期不掐可变跳高。
+//    v15：水域判定改每帧重叠对账（死亡/传送丢事件不再卡游泳态）。
+//    v14：水中八向游泳（零重力、划水、水里刷新能力、水中不识别墙）。
+//    v13 及更早：蹬墙朝向锁/蹬墙解锁/F3、法线过滤的着地判定、
+//         零摩擦材质、落差记录、MusicConductor 音乐钩子、
+//         VarJump、超级跳、冲刺缓冲、顿帧、残影、能力解锁。
 // ============================================================
 [RequireComponent(typeof(Rigidbody2D))]
 [RequireComponent(typeof(Collider2D))]
 public class PlayerController2D : MonoBehaviour
 {
-    [Header("能力解锁（默认锁定，道具或 F1/F2/F3 解锁）")]
+    [Header("能力解锁（默认锁定，用道具或 F1/F2/F3 解锁）")]
     [Tooltip("二段跳。默认关；勾上 = 空中还能再跳一次。")]
     public bool canDoubleJump = false;
     [Tooltip("冲刺。默认关；勾上 = 可以横向或斜向冲一段。")]
@@ -47,7 +52,7 @@ public class PlayerController2D : MonoBehaviour
     public float jumpVelocity = 14f;
     public float airJumpVelocity = 12.5f;
     public float varJumpTime = 0.2f;
-    public float jumpHBoost = 4f;            // v6: 移动中起跳附赠的水平冲量
+    public float jumpHBoost = 4f;
     public float jumpCutMultiplier = 0.4f;
     public float jumpCutMinSpeed = 3f;
     public float gravityScale = 4.2f;
@@ -58,8 +63,8 @@ public class PlayerController2D : MonoBehaviour
     public float jumpBufferTime = 0.1f;
 
     [Header("超级跳（地面冲刺接跳跃）")]
-    public float superJumpWindow = 0.15f;    // v6: 地面冲刺结束后这窗口内起跳=超级跳
-    public float superJumpH = 18f;           // v6: 超级跳水平速度
+    public float superJumpWindow = 0.15f;
+    public float superJumpH = 18f;
 
     [Header("下落速度上限")]
     public float maxFall = -16f;
@@ -74,7 +79,7 @@ public class PlayerController2D : MonoBehaviour
     public float dashCooldown = 0.2f;
     public float dashRefillDelay = 0.1f;
     public float dashUpBias = 0.8f;
-    public float dashBufferTime = 0.08f;     // v6: 冲刺输入缓冲
+    public float dashBufferTime = 0.08f;
     public bool dashHitstop = true;
     public float hitstopTime = 0.03f;
 
@@ -85,7 +90,15 @@ public class PlayerController2D : MonoBehaviour
     public float wallSlideMaxFall = -3f;
     public float wallJumpHSpeed = 12f;
     public float wallJumpForceTime = 0.15f;
-    public float wallJumpFacingTime = 0.2f;   // v7: 蹬墙跳后朝向锁定时长（秒），期间按键不改朝向
+    public float wallJumpFacingTime = 0.2f;
+
+    [Header("游泳")]
+    public float swimSpeed = 5.5f;          // 游速
+    public float swimAccel = 30f;           // 水中操控加减速
+    public float waterDrag = 7f;            // 爆发段（划水/冲刺后）的柔和水阻
+    public float swimStrokeSpeed = 11f;     // 跳跃键=划水的速度
+    public float swimStrokeCooldown = 0.35f;
+    public float enterWaterDamp = 0.5f;     // 入水瞬间速度衰减
 
     [Header("地面检测")]
     public float groundCastDistance = 0.08f;
@@ -106,8 +119,8 @@ public class PlayerController2D : MonoBehaviour
     SpriteRenderer sr;
     Collider2D col;
     ContactFilter2D groundFilter;
-    readonly RaycastHit2D[] hits = new RaycastHit2D[8];   // v9: 4 → 8，贴住多格时够用
-    float airPeakY;                       // v11: 这一跳在空中的最高点（世界 y），用来算落差
+    readonly RaycastHit2D[] hits = new RaycastHit2D[8];
+    float airPeakY;                       // v11: 这一跳的空中最高点
 
     int lastDir = 1;
     float coyoteTimer, jumpBufferTimer;
@@ -116,8 +129,8 @@ public class PlayerController2D : MonoBehaviour
     float varJumpTimer;
     float currentJumpSpeed;
     float wallForceTimer;
-    float wallFacingTimer;                  // v7: 朝向锁剩余时间（>0 时按键不改朝向）
-    float groundDashJumpTimer;      // v6: >0 = 刚结束一次地面冲刺（超级跳窗口）
+    float wallFacingTimer;
+    float groundDashJumpTimer;
     int wallDir;
 
     bool isDashing;
@@ -125,6 +138,17 @@ public class PlayerController2D : MonoBehaviour
     float dashTimer, dashCdTimer, dashRefillTimer, dashBufferTimer;
     bool dashAvailable;
     bool dashStartedOnGround;
+
+    // ---- 水域状态（v15：每帧对账，不依赖触发事件）----
+    int waterCount;
+    float strokeCdTimer;
+    bool InWater => waterCount > 0;
+    readonly Collider2D[] overlapHits = new Collider2D[8];
+    ContactFilter2D waterFilter;
+
+    // ---- v19: 单向平台（水面）下穿 ----
+    readonly List<Collider2D> ignoredPlatforms = new List<Collider2D>();
+    float dropTimer;
 
     public void UnlockDoubleJump() { canDoubleJump = true;  Debug.Log("[能力] 解锁二段跳！"); }
     public void UnlockDash()       { canDash = true;        Debug.Log("[能力] 解锁冲刺！"); }
@@ -144,22 +168,22 @@ public class PlayerController2D : MonoBehaviour
         rb.freezeRotation = true;
         dashAvailable = true;
 
-        // v10: 玩家碰撞体强制用“0 摩擦”的物理材质。
-        // 为什么：默认摩擦 0.4，按住朝墙的方向下落时，摩擦力会把下落“拽住”，
-        // 看起来就是粘在墙上/挂在墙上。摩擦设 0 之后贴墙跌落就干净了。
+        // v10: 玩家碰撞体强制零摩擦（防贴墙被摩擦力"拽住"）
         if (col.sharedMaterial == null || col.sharedMaterial.friction != 0f)
         {
             var mat = new PhysicsMaterial2D("PlayerNoFriction");
-            mat.friction = 0f;      // 不打滑的元凶
-            mat.bounciness = 0f;    // 不要弹
+            mat.friction = 0f;
+            mat.bounciness = 0f;
             col.sharedMaterial = mat;
         }
+
+        // v15: 水域对账过滤器（含触发器，不分层，靠 WaterZone2D 组件识别）
+        waterFilter = new ContactFilter2D();
+        waterFilter.useTriggers = true;
+        waterFilter.useLayerMask = false;
     }
 
     // v9: 只在“面朝检测方向”的碰撞面算命中。
-    // 为什么需要它：胶囊碰撞体底下是个圆弧，蹭到方块边缘或墙顶角时，
-    // 圆弧的斜侧面也会被 Cast 命中，于是“明明没踩实”却被当成站在地上。
-    // 这里要求法线跟检测方向相反、且夹角够正（dot ≥ minDot），斜侧面就会被丢掉。
     bool CastHasSurface(Vector2 dir, float dist, float minDot)
     {
         int n = col.Cast(dir, groundFilter, hits, dist);
@@ -175,15 +199,16 @@ public class PlayerController2D : MonoBehaviour
         // ---- 0. 临时测试键 ----
         if (Input.GetKeyDown(testUnlockJumpKey)) UnlockDoubleJump();
         if (Input.GetKeyDown(testUnlockDashKey)) UnlockDash();
-        if (Input.GetKeyDown(testUnlockWallJumpKey)) UnlockWallJump();   // v8: 测试键 F3
+        if (Input.GetKeyDown(testUnlockWallJumpKey)) UnlockWallJump();
 
         jumpBufferTimer -= dt;
         dashCdTimer -= dt;
         dashRefillTimer -= dt;
-        dashBufferTimer -= dt;          // v6: 冲刺缓冲计时
+        dashBufferTimer -= dt;
         wallForceTimer -= dt;
-        wallFacingTimer -= dt;              // v7: 朝向锁倒计时
+        wallFacingTimer -= dt;
         groundDashJumpTimer -= dt;
+        strokeCdTimer -= dt;
 
         // ---- 1. 方向输入（A+D 同按取后按方向）----
         if (Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.LeftArrow))  lastDir = -1;
@@ -194,28 +219,38 @@ public class PlayerController2D : MonoBehaviour
         float vRaw = Input.GetAxisRaw("Vertical");
         bool jumpHeld = Input.GetButton("Jump");
 
-        // ---- 2. 冲刺输入：进缓冲（v6），不直接判定 ----
+        // ---- 2. 冲刺输入：进缓冲 ----
         if (Input.GetKeyDown(dashKey) || TouchInput.dashPressed)
             dashBufferTimer = dashBufferTime;
         TouchInput.dashPressed = false;
+
+        // ---- 2.5 v15: 水域对账（每帧以实际重叠为准）----
+        {
+            int n = col.OverlapCollider(waterFilter, overlapHits);
+            int count = 0;
+            for (int i = 0; i < n; i++)
+                if (overlapHits[i].GetComponent<WaterZone2D>() != null) count++;
+
+            if (count > 0 && waterCount == 0 && rb != null)
+                rb.velocity *= enterWaterDamp;      // 入水刹车（0→有水 的那一刻）
+
+            waterCount = count;
+        }
 
         // ---- 3. 检测：地面 / 墙壁 ----
         groundFilter.useLayerMask = true;
         groundFilter.layerMask = groundLayer;
         groundFilter.useTriggers = false;
         bool grounded = rb.velocity.y <= 0.5f
-                        && CastHasSurface(Vector2.down, groundCastDistance, 0.5f);   // v9: 只认朝上的面
+                        && CastHasSurface(Vector2.down, groundCastDistance, 0.5f);
         wallDir = 0;
-        if (!grounded && canWallJump && (enableWallSlide || enableWallJump))   // v8: 未解锁则不识别墙面
+        if (!grounded && !InWater && canWallJump && (enableWallSlide || enableWallJump))
         {
-            if (CastHasSurface(Vector2.right, wallCheckDist, 0.5f))      wallDir = 1;   // v9: 只认竖直墙面
+            if (CastHasSurface(Vector2.right, wallCheckDist, 0.5f))      wallDir = 1;
             else if (CastHasSurface(Vector2.left, wallCheckDist, 0.5f))  wallDir = -1;
         }
 
-        // v11: 记录“这一跳的空中最高点”。
-        // 用途：可打碎的砖块要判断“你是不是从很高的地方砸下来”。
-        // 注意不能直接用下落速度——终端速度 16 格/秒在掉 0.6 格时就到了，
-        // 从 1 格掉和从 50 格掉，速度完全一样。落差才是可靠的量。
+        // v11: 记录“这一跳的空中最高点”
         if (grounded) airPeakY = rb.position.y;
         else airPeakY = Mathf.Max(airPeakY, rb.position.y);
 
@@ -228,10 +263,46 @@ public class PlayerController2D : MonoBehaviour
         }
         else coyoteTimer -= dt;
 
-        // ---- 5. 冲刺：用缓冲值判定（按早了会在可冲瞬间自动触发）----
+        // ---- 4.5 v19: 单向平台下穿（按 S）----
+        // 0.35s 只是"开始检查"的最早时间；和平台间隙 > 0.2 才恢复碰撞，
+        // 否则 0.05s 后再查——人还卡在板子里时绝不恢复，就不会被弹飞。
+        if (dropTimer > 0f)
+        {
+            dropTimer -= dt;
+            if (dropTimer <= 0f)
+            {
+                for (int i = ignoredPlatforms.Count - 1; i >= 0; i--)
+                {
+                    var p = ignoredPlatforms[i];
+                    if (p == null) { ignoredPlatforms.RemoveAt(i); continue; }
+
+                    // col.Distance(p)：< 0 重叠，= 0 贴着，> 0 分开
+                    if (col.Distance(p).distance > 0.2f)
+                    {
+                        Physics2D.IgnoreCollision(col, p, false);   // 真离开了才恢复
+                        ignoredPlatforms.RemoveAt(i);
+                    }
+                }
+                if (ignoredPlatforms.Count > 0)
+                    dropTimer = 0.05f;   // 还有没离开的，稍后再查（不恢复、不弹人）
+            }
+        }
+        else if (grounded && !InWater && vRaw < -0.5f)
+        {
+            int n = col.Cast(Vector2.down, groundFilter, hits, groundCastDistance + 0.1f);
+            for (int i = 0; i < n; i++)
+                if (hits[i].collider != null && hits[i].collider.GetComponent<PlatformEffector2D>() != null)
+                {
+                    Physics2D.IgnoreCollision(col, hits[i].collider, true);
+                    ignoredPlatforms.Add(hits[i].collider);
+                }
+            if (ignoredPlatforms.Count > 0) dropTimer = 0.35f;   // 最短下穿窗口
+        }
+
+        // ---- 5. 冲刺 ----
         if (dashBufferTimer > 0f && canDash && dashAvailable && !isDashing && dashCdTimer <= 0f)
         {
-            Vector2 d = new Vector2(dir, vRaw);
+            Vector2 d = new Vector2(dir, vRaw);   // 水里同样八向冲
             if (d.sqrMagnitude < 0.01f)
                 d = new Vector2(sr != null && sr.flipX ? -1f : 1f, 0f);
             d.Normalize();
@@ -244,6 +315,42 @@ public class PlayerController2D : MonoBehaviour
             dashTimer -= dt;
             rb.velocity = dashDir * dashSpeed;
             if (dashTimer <= 0f) EndDash();
+        }
+        else if (InWater)
+        {
+            // ================= v18：游泳模式（速度永远收敛）=================
+            rb.gravityScale = 0f;
+            if (rb.velocity.y <= 5f) varJumpTimer = 0f;   // 从水里起跳的上升期不掐可变跳高
+            airJumpsUsed = 0;
+            if (dashCdTimer <= 0f) dashAvailable = true;
+
+            Vector2 swimDir = new Vector2(dir, vRaw);
+            if (swimDir.sqrMagnitude > 0.01f) swimDir.Normalize();
+
+            // v17: 划水/起跳吃跳跃缓冲（按早了不吞键）
+            if (strokeCdTimer <= 0f && jumpBufferTimer > 0f)
+            {
+                jumpBufferTimer = 0f;
+                if (grounded)
+                {
+                    DoJump(jumpVelocity, dir);            // 浅水/池底：满力正常跳
+                }
+                else
+                {
+                    Vector2 s = swimDir.sqrMagnitude > 0.01f ? swimDir : Vector2.up;
+                    rb.velocity = s * swimStrokeSpeed;    // 划水
+                    strokeCdTimer = swimStrokeCooldown;
+                    MusicConductor.Play(Instrument.Harp);
+                }
+            }
+            else
+            {
+                // v18: 超出目标速度 → 柔和水阻衰减；正常操控 → swimAccel
+                Vector2 target = swimDir * swimSpeed;
+                bool aboveTarget = rb.velocity.sqrMagnitude > target.sqrMagnitude + 4f;
+                float rate = aboveTarget ? waterDrag : swimAccel;
+                rb.velocity = Vector2.MoveTowards(rb.velocity, target, rate * dt);
+            }
         }
         else
         {
@@ -299,8 +406,8 @@ public class PlayerController2D : MonoBehaviour
             jumpBufferTimer = jumpBufferTime;
         TouchInput.jumpPressed = false;
 
-        // ---- 12. 起跳优先级：地面(土狼/超级跳) > 蹬墙 > 二段 ----
-        if (jumpBufferTimer > 0f && !isDashing)
+        // ---- 12. 起跳（水中无效，由划水/池底跳接管）----
+        if (jumpBufferTimer > 0f && !isDashing && !InWater)
         {
             if (coyoteTimer > 0f)
             {
@@ -312,12 +419,12 @@ public class PlayerController2D : MonoBehaviour
             else if (canDoubleJump && airJumpsUsed < 1)
             {
                 airJumpsUsed++;
-                DoJump(airJumpVelocity, 0);   // 二段跳不吃水平冲量，防止无限加速
+                DoJump(airJumpVelocity, 0);
             }
         }
 
         // ---- 13. 朝向 ----
-        if (dir != 0 && wallFacingTimer <= 0f && sr != null) sr.flipX = dir < 0;   // v7: 朝向锁期间不响应按键
+        if (dir != 0 && wallFacingTimer <= 0f && sr != null) sr.flipX = dir < 0;
     }
 
     // 地面普通跳：带水平冲量（v6）
@@ -330,10 +437,10 @@ public class PlayerController2D : MonoBehaviour
         coyoteTimer = 0f;
         groundDashJumpTimer = 0f;
 
-        MusicConductor.Play(Instrument.Harp);       // v13: 跳跃 → 里拉琴（v2 配器对调：最频繁的动作用最柔的音）
+        MusicConductor.Play(Instrument.Harp);
     }
 
-    // 超级跳：地面冲刺后马上起跳，水平速度远超跑速（v6）
+    // 超级跳：地面冲刺后马上起跳（v6）
     void DoSuperJump(int dirAtJump)
     {
         rb.velocity = new Vector2(superJumpH * dirAtJump, jumpVelocity);
@@ -342,7 +449,7 @@ public class PlayerController2D : MonoBehaviour
         jumpBufferTimer = 0f;
         coyoteTimer = 0f;
         groundDashJumpTimer = 0f;
-        MusicConductor.Play(Instrument.BassDrum);   // v12: 超级跳 → 大鼓
+        MusicConductor.Play(Instrument.BassDrum);
         Debug.Log("[超级跳]");
     }
 
@@ -352,14 +459,14 @@ public class PlayerController2D : MonoBehaviour
         rb.velocity = new Vector2(-wallDirSide * wallJumpHSpeed, jumpVelocity);
         currentJumpSpeed = jumpVelocity;
         varJumpTimer = varJumpTime;
-        wallForceTimer = dirAtJump != 0 ? wallJumpForceTime : 0f;   // 没按方向就不锁
+        wallForceTimer = dirAtJump != 0 ? wallJumpForceTime : 0f;
         airJumpsUsed = 0;
         dashAvailable = true;
         jumpBufferTimer = 0f;
         if (sr != null) sr.flipX = wallDirSide == 1;
-        wallFacingTimer = wallJumpFacingTime;   // v7: 锁住朝向，防止同帧第 13 步把它改回去
+        wallFacingTimer = wallJumpFacingTime;
 
-        MusicConductor.Play(Instrument.Violin);   // v12: 蹬墙跳 → 小提琴
+        MusicConductor.Play(Instrument.Violin);
     }
 
     void StartDash(Vector2 d)
@@ -370,14 +477,14 @@ public class PlayerController2D : MonoBehaviour
         dashCdTimer = dashDuration + dashCooldown;
         dashAvailable = false;
         dashRefillTimer = dashRefillDelay;
-        dashBufferTimer = 0f;               // 消费掉缓冲
+        dashBufferTimer = 0f;
 
-        MusicConductor.Play(Instrument.Trumpet);   // v12: 冲刺 → 小号
-        dashStartedOnGround = coyoteTimer > 0f;   // 记录：地面起冲才能接超级跳
+        MusicConductor.Play(Instrument.Trumpet);
+        dashStartedOnGround = coyoteTimer > 0f && !InWater;   // 水中冲刺不算地面冲刺
         airJumpsUsed = 0;
         varJumpTimer = 0f;
         rb.gravityScale = 0f;
-        if (dashHitstop) StartCoroutine(Hitstop());
+        if (dashHitstop && !InWater) StartCoroutine(Hitstop());   // 水中不放顿帧
         if (dashTrail) StartCoroutine(TrailRoutine());
     }
 
@@ -387,7 +494,7 @@ public class PlayerController2D : MonoBehaviour
         Vector2 end = dashDir * dashEndSpeed;
         if (dashDir.y > 0.5f) end.y *= endDashUpMult;
         rb.velocity = end;
-        if (dashStartedOnGround) groundDashJumpTimer = superJumpWindow;  // 开超级跳窗口
+        if (dashStartedOnGround) groundDashJumpTimer = superJumpWindow;
     }
 
     IEnumerator Hitstop()
