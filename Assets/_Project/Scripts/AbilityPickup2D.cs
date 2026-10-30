@@ -18,6 +18,9 @@ public class AbilityPickup2D : MonoBehaviour
     [Tooltip("勾上 = 捡到后学会蹬墙跳 + 贴墙下滑（这两个能力是绑在一起的，一次全给）。")]
     public bool unlockWallJump;
 
+    [Tooltip("勾上 = 捡到后学会游泳（水里八向自由游 + 按跳跃划水上浮）。\n不勾 = 掉进水里只能慢慢沉底、慢慢走。")]
+    public bool unlockSwim;
+
     [Header("拾取反馈")]
     [Tooltip("捡到时额外触发的事，可以拖音效、动画、弹提示 UI。\n不填 = 捡到就静静消失。")]
     public UnityEvent onPicked;
@@ -35,6 +38,7 @@ public class AbilityPickup2D : MonoBehaviour
         if (unlockDoubleJump) pc.UnlockDoubleJump();
         if (unlockDash)       pc.UnlockDash();
         if (unlockWallJump)   pc.UnlockWallJump();   // v8: 蹬墙跳道具
+        if (unlockSwim)       pc.UnlockSwim();       // v20: 游泳道具
 
         onPicked.Invoke();
         picked = true;

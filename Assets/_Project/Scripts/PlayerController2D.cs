@@ -33,13 +33,16 @@ public static class TouchInput
 [RequireComponent(typeof(Collider2D))]
 public class PlayerController2D : MonoBehaviour
 {
-    [Header("能力解锁（默认锁定，用道具或 F1/F2/F3 解锁）")]
+    [Header("能力解锁（默认锁定，用道具或 F1/F2/F3/F4 解锁）")]
     [Tooltip("二段跳。默认关；勾上 = 空中还能再跳一次。")]
     public bool canDoubleJump = false;
     [Tooltip("冲刺。默认关；勾上 = 可以横向或斜向冲一段。")]
     public bool canDash = false;
     [Tooltip("蹬墙跳 + 贴墙下滑。默认关；勾上 = 贴墙时下落变慢，并且能蹬着墙往外跳。\n注意：这一个开关同时管两件事，关掉时贴墙就是正常掉落。")]
     public bool canWallJump = false;
+
+    [Tooltip("游泳 + 水下行走。默认关；勾上 = 在水里可以八向自由游，按跳跃键划水上浮。\n未解锁时：水只会让你下沉变慢、走路变慢，不能划水，也浮不上来。")]
+    public bool canSwim = false;
 
     [Header("移动")]
     public float moveSpeed = 8f;
@@ -100,6 +103,25 @@ public class PlayerController2D : MonoBehaviour
     public float swimStrokeCooldown = 0.35f;
     public float enterWaterDamp = 0.5f;     // 入水瞬间速度衰减
 
+    [Tooltip("游泳时的重力是陆地的百分之多少。\n游泳不等于失重 —— 0.35 = 还会慢慢往下沉，想浮住得一直往上按。\n调大 → 沉得快、更累；调到 1 = 和陆地一样沉。")]
+    public float swimGravityScale = 0.35f;
+
+    [Tooltip("游泳时最多能沉多快（格/秒，写负数）。\n-3.0 = 慢慢沉；-6 = 沉得很快。")]
+    public float swimMaxFall = -3.0f;
+
+    [Header("水下行走（还没解锁游泳时）")]
+    [Tooltip("水里的重力是陆地的百分之多少。\n0.35 = 只保留 35% 重力，掉得很慢但还在掉。\n调大 → 沉得快；调到 1 = 和陆地一样沉。")]
+    public float waterGravityScale = 0.35f;
+
+    [Tooltip("水里最多能沉多快（格/秒，写负数）。\n-3.5 = 慢慢沉底；-8 = 沉得很快。")]
+    public float waterMaxFall = -3.5f;
+
+    [Tooltip("水里的水平速度是陆地上的百分之多少。\n0.65 = 走路明显变慢但还能走。\n调小 → 更费劲；调到 0.3 = 几乎挪不动。")]
+    public float waterMoveMul = 0.65f;
+
+    [Tooltip("水下行走的起跳力气倍率（乘在 Jump Velocity 上，默认 0.8 = 八成力）。\n想跳得高就调大；调到 1 = 和陆地一样。")]
+    public float waterJumpMul = 0.8f;
+
     [Header("地面检测")]
     public float groundCastDistance = 0.08f;
     public LayerMask groundLayer;
@@ -109,10 +131,11 @@ public class PlayerController2D : MonoBehaviour
     public float trailInterval = 0.03f;
     public float trailFadeSpeed = 4f;
 
-    [Header("临时测试键（正式版删除 Update 里对应两行）")]
+    [Header("临时测试键（正式版删除 Update 里对应几行）")]
     public KeyCode testUnlockJumpKey = KeyCode.F1;
     public KeyCode testUnlockDashKey = KeyCode.F2;
     public KeyCode testUnlockWallJumpKey = KeyCode.F3;
+    public KeyCode testUnlockSwimKey = KeyCode.F4;
 
     // ---- 内部状态 ----
     Rigidbody2D rb;
@@ -153,6 +176,7 @@ public class PlayerController2D : MonoBehaviour
     public void UnlockDoubleJump() { canDoubleJump = true;  Debug.Log("[能力] 解锁二段跳！"); }
     public void UnlockDash()       { canDash = true;        Debug.Log("[能力] 解锁冲刺！"); }
     public void UnlockWallJump()   { canWallJump = true;    Debug.Log("[能力] 解锁蹬墙跳！"); }
+    public void UnlockSwim()       { canSwim = true;        Debug.Log("[能力] 解锁游泳！"); }
 
     /// <summary>
     /// 这一跳的落差（单位：格）= 空中最高点 - 当前位置。
@@ -190,6 +214,66 @@ public class PlayerController2D : MonoBehaviour
         for (int i = 0; i < n; i++)
             if (Vector2.Dot(hits[i].normal, -dir) >= minDot) return true;
         return false;
+    }
+
+    // ============================================================
+    // v23: 水下行走
+    //   没解锁游泳时：水里全程用这一套（水只减速，不能游）。
+    //   解锁游泳后：只要脚踩池底也用这一套（于是"能走"和"能游"共用一个锁）。
+    // 水的作用就两件事：重力变小、下沉有上限；走和跳照常，只是打折。
+    // ============================================================
+    void WaterWalk(float dt, int hInput, bool onGround, bool jumpHeld)
+    {
+        // 跳：池底能跳；空中还能补一次二段跳（都按 waterJumpMul 打折）
+        if (jumpBufferTimer > 0f)
+        {
+            if (onGround)
+            {
+                jumpBufferTimer = 0f;
+                DoJump(jumpVelocity * waterJumpMul, hInput);
+            }
+            else if (canDoubleJump && airJumpsUsed < 1)
+            {
+                jumpBufferTimer = 0f;
+                airJumpsUsed++;
+                DoJump(airJumpVelocity * waterJumpMul, 0);
+            }
+        }
+
+        // v24: 按住跳变高（和陆地同一套）—— 上升期维持起跳速度，松手立刻截断
+        if (varJumpTimer > 0f)
+        {
+            if (jumpHeld && rb.velocity.y > 0f)
+            {
+                rb.velocity = new Vector2(rb.velocity.x, currentJumpSpeed);
+                varJumpTimer -= dt;
+            }
+            else
+            {
+                varJumpTimer = 0f;
+                if (rb.velocity.y > jumpCutMinSpeed)
+                    rb.velocity = new Vector2(rb.velocity.x,
+                        Mathf.Max(rb.velocity.y * jumpCutMultiplier, jumpCutMinSpeed));
+            }
+        }
+
+        // 水平：陆地那套加减速，但目标速度和加速度都乘 waterMoveMul
+        if (wallForceTimer <= 0f)
+        {
+            float target = hInput * moveSpeed * waterMoveMul;
+            float rate = hInput != 0f ? (onGround ? accel : airAccel)
+                                      : (onGround ? decel : airDecel);
+            rb.velocity = new Vector2(
+                Mathf.MoveTowards(rb.velocity.x, target, rate * waterMoveMul * dt),
+                rb.velocity.y);
+        }
+
+        // 重力：减轻，但仍然往下沉
+        rb.gravityScale = gravityScale * waterGravityScale;
+
+        // 下沉上限：水再深也是慢慢沉底
+        if (rb.velocity.y < waterMaxFall)
+            rb.velocity = new Vector2(rb.velocity.x, waterMaxFall);
     }
 
     void Update()
@@ -232,7 +316,10 @@ public class PlayerController2D : MonoBehaviour
                 if (overlapHits[i].GetComponent<WaterZone2D>() != null) count++;
 
             if (count > 0 && waterCount == 0 && rb != null)
+            {
                 rb.velocity *= enterWaterDamp;      // 入水刹车（0→有水 的那一刻）
+                varJumpTimer = 0f;                  // v24: 清掉陆地上残留的"按住跳变高"
+            }
 
             waterCount = count;
         }
@@ -316,18 +403,25 @@ public class PlayerController2D : MonoBehaviour
             rb.velocity = dashDir * dashSpeed;
             if (dashTimer <= 0f) EndDash();
         }
+        else if (InWater && (!canSwim || grounded))
+        {
+            // ================= v23：水下行走 =================
+            // 没解锁游泳：水里全程走这一套（只是减速，不能游）。
+            // 解锁后：只要脚踩池底也走这一套 —— 所以「能走」和「能游」是同一个锁给的。
+            WaterWalk(dt, dir, grounded, jumpHeld);
+        }
         else if (InWater)
         {
-            // ================= v18：游泳模式（速度永远收敛）=================
-            rb.gravityScale = 0f;
+            // ================= v22：游泳（仍有重力，会慢慢下沉）=================
             if (rb.velocity.y <= 5f) varJumpTimer = 0f;   // 从水里起跳的上升期不掐可变跳高
-            airJumpsUsed = 0;
-            if (dashCdTimer <= 0f) dashAvailable = true;
+
+            // 重力：游泳不会让你失重，只是沉得慢
+            rb.gravityScale = gravityScale * swimGravityScale;
 
             Vector2 swimDir = new Vector2(dir, vRaw);
             if (swimDir.sqrMagnitude > 0.01f) swimDir.Normalize();
 
-            // v17: 划水/起跳吃跳跃缓冲（按早了不吞键）
+            // 划水 / 池底起跳（吃跳跃缓冲，按早了不吞键）
             if (strokeCdTimer <= 0f && jumpBufferTimer > 0f)
             {
                 jumpBufferTimer = 0f;
@@ -337,19 +431,28 @@ public class PlayerController2D : MonoBehaviour
                 }
                 else
                 {
-                    Vector2 s = swimDir.sqrMagnitude > 0.01f ? swimDir : Vector2.up;
-                    rb.velocity = s * swimStrokeSpeed;    // 划水
+                    Vector2 sv = swimDir.sqrMagnitude > 0.01f ? swimDir : Vector2.up;
+                    rb.velocity = sv * swimStrokeSpeed;   // 划水
                     strokeCdTimer = swimStrokeCooldown;
                     MusicConductor.Play(Instrument.Harp);
                 }
             }
             else
             {
-                // v18: 超出目标速度 → 柔和水阻衰减；正常操控 → swimAccel
-                Vector2 target = swimDir * swimSpeed;
-                bool aboveTarget = rb.velocity.sqrMagnitude > target.sqrMagnitude + 4f;
-                float rate = aboveTarget ? waterDrag : swimAccel;
-                rb.velocity = Vector2.MoveTowards(rb.velocity, target, rate * dt);
+                // 水平：有输入就逼近 swimSpeed，没输入靠水阻停下来
+                float newX = Mathf.Abs(dir) > 0.01f
+                    ? Mathf.MoveTowards(rb.velocity.x, dir * swimSpeed, swimAccel * dt)
+                    : Mathf.MoveTowards(rb.velocity.x, 0f, waterDrag * dt);
+
+                // 垂直：有输入才主动游上/游下；没输入就让重力把人往下带
+                float newY = rb.velocity.y;
+                if (Mathf.Abs(vRaw) > 0.01f)
+                    newY = Mathf.MoveTowards(newY, vRaw * swimSpeed, swimAccel * dt);
+
+                // 下沉不加速：最多沉到 swimMaxFall
+                if (newY < swimMaxFall) newY = swimMaxFall;
+
+                rb.velocity = new Vector2(newX, newY);
             }
         }
         else
@@ -406,7 +509,7 @@ public class PlayerController2D : MonoBehaviour
             jumpBufferTimer = jumpBufferTime;
         TouchInput.jumpPressed = false;
 
-        // ---- 12. 起跳（水中无效，由划水/池底跳接管）----
+        // ---- 12. 起跳（水里不走这里，由「水下行走」或「游泳」分支接管）----
         if (jumpBufferTimer > 0f && !isDashing && !InWater)
         {
             if (coyoteTimer > 0f)
