@@ -44427,6 +44427,29 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 3487617052476091405, guid: 3fd5466f175d4064793833388a87b380, type: 3}
   m_PrefabInstance: {fileID: 1852057211}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1865676890 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6018982231567000323, guid: 155db03f72dd1324dabe638539a9bd78, type: 3}
+  m_PrefabInstance: {fileID: 1359325271}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1865676897
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1865676890}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fba878bc6f62cad49966f85cb304aea3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  wavePrefab: {fileID: 7810324809357695718, guid: 80b0aed5aef26664f9f52aee1344019e, type: 3}
+  waveKey: 113
+  alsoMouseLeft: 1
+  cooldown: 0.6
+  originYOffset: -1.2
+  waveClip: {fileID: 0}
 --- !u!4 &1877226635 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4154690117238617732, guid: 1cabef382aeea30478f712ffb1bad839, type: 3}
