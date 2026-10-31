@@ -122,6 +122,40 @@ public class PlayerController2D : MonoBehaviour
     [Tooltip("水下行走的起跳力气倍率（乘在 Jump Velocity 上，默认 0.8 = 八成力）。\n想跳得高就调大；调到 1 = 和陆地一样。")]
     public float waterJumpMul = 0.8f;
 
+    [Tooltip("水下冲刺的速度（格/秒）。\n和「冲刺」分组里的 Dash Speed 互不影响，改这个只改水里。\n冲刺距离 = 速度 × 时长，想保持距离不变就得两个一起调。")]
+    public float waterDashSpeed = 32f;
+
+    [Tooltip("水下冲刺的持续时间（秒）。\n距离 = 速度 × 时长。当前 32 × 0.1125 = 3.6 格（和陆地冲刺一样远）。\n不要低于 0.10，物理帧（50Hz）太少会抖。")]
+    public float waterDashDuration = 0.1125f;
+
+    [Tooltip("水下土狼时间（秒）。离开池底/平台边缘后仍能起跳的窗口。\n和陆地的 Coyote Time 完全独立，改这个不影响陆地。\n水下落慢，0.1 可能偏短，0.15 更宽容。")]
+    public float waterCoyoteTime = 0.1f;
+
+    [Tooltip("水下按住跳的维持时长（秒）。按住时这段时间内保持起跳速度不掉。\n和陆地的 Var Jump Time 完全独立。")]
+    public float waterVarJumpTime = 0.18f;
+
+    [Tooltip("水下松手截断倍率。松手时垂直速度乘这个数，越小掉得越急。\n和陆地的 Jump Cut Multiplier 完全独立。")]
+    public float waterJumpCutMultiplier = 0.5f;
+
+    [Tooltip("水下站在池底时的加速度（格/秒²）。越大起步越快。\n和陆地的 Accel 完全独立。")]
+    public float waterAccel = 140f;
+
+    [Tooltip("水下站在池底时的减速度（格/秒²）。越大刹车越快。\n和陆地的 Decel 完全独立。")]
+    public float waterDecel = 90f;
+
+    [Tooltip("水下离地（悬浮）时的加速度（格/秒²）。\n和陆地的 Air Accel 完全独立。")]
+    public float waterAirAccel = 112f;
+
+    [Tooltip("水下离地（悬浮）时的减速度（格/秒²）。\n和陆地的 Air Decel 完全独立。")]
+    public float waterAirDecel = 35f;
+
+    [Header("碰撞体跟随朝向")]
+    [Tooltip("勾上 = 角色左右翻转时，碰撞体的水平偏移跟着镜像。\n解决「贴图翻了、碰撞体没翻」的问题。\n碰撞体本来居中（Offset X = 0）时，勾不勾都一样。")]
+    public bool flipColliderWithFacing = true;
+
+    [Tooltip("角色【朝右】时碰撞体的水平偏移（格），朝左自动取相反数。\n填 0 = 自动使用碰撞体 Inspector 里当前填的 Offset X。")]
+    public float colliderFlipOffsetX = 0f;
+
     [Header("地面检测")]
     public float groundCastDistance = 0.08f;
     public LayerMask groundLayer;
@@ -141,6 +175,8 @@ public class PlayerController2D : MonoBehaviour
     Rigidbody2D rb;
     SpriteRenderer sr;
     Collider2D col;
+    float colBaseOffsetY;   // v29: 碰撞体原始 Y 偏移
+    float colFlipX;         // v29: 朝右时的 X 偏移（朝左取相反数）
     ContactFilter2D groundFilter;
     readonly RaycastHit2D[] hits = new RaycastHit2D[8];
     float airPeakY;                       // v11: 这一跳的空中最高点
@@ -184,12 +220,44 @@ public class PlayerController2D : MonoBehaviour
     /// </summary>
     public float FallDistance { get { return Mathf.Max(0f, airPeakY - rb.position.y); } }
 
+    /// <summary>
+    /// v30: 把「跳跃 / 二段跳 / 冲刺」相关的临时状态全部清零。
+    /// 重生时由 PlayerHealth2D 调用，避免复活后还剩半个冲刺、二段跳已被用掉等情况。
+    /// </summary>
+    public void ResetMovementState()
+    {
+        airJumpsUsed = 0;          // 二段跳归还
+        dashAvailable = true;      // 冲刺归还
+        dashTimer = 0f;
+        dashCdTimer = 0f;
+        dashRefillTimer = 0f;
+        dashBufferTimer = 0f;
+        isDashing = false;
+
+        jumpBufferTimer = 0f;
+        coyoteTimer = 0f;
+        varJumpTimer = 0f;
+        wallForceTimer = 0f;
+        wallFacingTimer = 0f;
+        groundDashJumpTimer = 0f;
+
+        dropTimer = 0f;
+        strokeCdTimer = 0f;
+
+        if (rb != null) rb.velocity = Vector2.zero;
+    }
+
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         sr = GetComponent<SpriteRenderer>();
         col = GetComponent<Collider2D>();
         rb.freezeRotation = true;
+
+        // v29: 记录碰撞体基础偏移，供「跟随朝向翻转」使用
+        colBaseOffsetY = col.offset.y;
+        colFlipX = (colliderFlipOffsetX != 0f) ? Mathf.Abs(colliderFlipOffsetX)
+                                               : Mathf.Abs(col.offset.x);
         dashAvailable = true;
 
         // v10: 玩家碰撞体强制零摩擦（防贴墙被摩擦力"拽住"）
@@ -227,16 +295,20 @@ public class PlayerController2D : MonoBehaviour
         // 跳：池底能跳；空中还能补一次二段跳（都按 waterJumpMul 打折）
         if (jumpBufferTimer > 0f)
         {
-            if (onGround)
+            // v26: 水下也有土狼时间 —— 刚离开池底/平台边缘的 coyoteTime 秒内
+            //      按跳仍按"第一跳"处理，不会掉进下面的二段跳分支
+            if (onGround || coyoteTimer > 0f)
             {
                 jumpBufferTimer = 0f;
                 DoJump(jumpVelocity * waterJumpMul, hInput);
+                varJumpTimer = waterVarJumpTime;   // v27: 水下按住跳时长独立
             }
             else if (canDoubleJump && airJumpsUsed < 1)
             {
                 jumpBufferTimer = 0f;
                 airJumpsUsed++;
                 DoJump(airJumpVelocity * waterJumpMul, 0);
+                varJumpTimer = waterVarJumpTime;   // v27
             }
         }
 
@@ -253,7 +325,7 @@ public class PlayerController2D : MonoBehaviour
                 varJumpTimer = 0f;
                 if (rb.velocity.y > jumpCutMinSpeed)
                     rb.velocity = new Vector2(rb.velocity.x,
-                        Mathf.Max(rb.velocity.y * jumpCutMultiplier, jumpCutMinSpeed));
+                        Mathf.Max(rb.velocity.y * waterJumpCutMultiplier, jumpCutMinSpeed));   // v27
             }
         }
 
@@ -261,10 +333,11 @@ public class PlayerController2D : MonoBehaviour
         if (wallForceTimer <= 0f)
         {
             float target = hInput * moveSpeed * waterMoveMul;
-            float rate = hInput != 0f ? (onGround ? accel : airAccel)
-                                      : (onGround ? decel : airDecel);
+            // v27: 水下加减速用独立字段，不再借陆地的 Accel/Decel
+            float rate = hInput != 0f ? (onGround ? waterAccel : waterAirAccel)
+                                      : (onGround ? waterDecel : waterAirDecel);
             rb.velocity = new Vector2(
-                Mathf.MoveTowards(rb.velocity.x, target, rate * waterMoveMul * dt),
+                Mathf.MoveTowards(rb.velocity.x, target, rate * dt),
                 rb.velocity.y);
         }
 
@@ -331,7 +404,7 @@ public class PlayerController2D : MonoBehaviour
         bool grounded = rb.velocity.y <= 0.5f
                         && CastHasSurface(Vector2.down, groundCastDistance, 0.5f);
         wallDir = 0;
-        if (!grounded && !InWater && canWallJump && (enableWallSlide || enableWallJump))
+        if (!grounded && canWallJump && (enableWallSlide || enableWallJump))   // v31: 水中也识别墙面
         {
             if (CastHasSurface(Vector2.right, wallCheckDist, 0.5f))      wallDir = 1;
             else if (CastHasSurface(Vector2.left, wallCheckDist, 0.5f))  wallDir = -1;
@@ -344,7 +417,7 @@ public class PlayerController2D : MonoBehaviour
         // ---- 4. 落地：刷新土狼/二段跳；冲刺延迟后填充 ----
         if (grounded && !isDashing)
         {
-            coyoteTimer = coyoteTime;
+            coyoteTimer = InWater ? waterCoyoteTime : coyoteTime;   // v27: 水下土狼独立
             airJumpsUsed = 0;
             if (!dashAvailable && dashRefillTimer <= 0f) dashAvailable = true;
         }
@@ -400,8 +473,14 @@ public class PlayerController2D : MonoBehaviour
         if (isDashing)
         {
             dashTimer -= dt;
-            rb.velocity = dashDir * dashSpeed;
+            rb.velocity = dashDir * (InWater ? waterDashSpeed : dashSpeed);   // v25: 水下冲刺速度独立
             if (dashTimer <= 0f) EndDash();
+        }
+        else if (InWater && enableWallJump && wallDir != 0 && jumpBufferTimer > 0f)
+        {
+            // ================= v31：水下蹬墙跳 =================
+            // 贴着墙按跳 = 蹬墙，优先于普通跳和划水。
+            DoWallJump(wallDir, dir);
         }
         else if (InWater && (!canSwim || grounded))
         {
@@ -527,7 +606,16 @@ public class PlayerController2D : MonoBehaviour
         }
 
         // ---- 13. 朝向 ----
-        if (dir != 0 && wallFacingTimer <= 0f && sr != null) sr.flipX = dir < 0;
+        if (dir != 0 && wallFacingTimer <= 0f) SetFacing(dir < 0);   // v29
+    }
+
+    // v29: 统一设置朝向 —— 图和碰撞体偏移一起翻
+    void SetFacing(bool faceLeft)
+    {
+        if (sr != null) sr.flipX = faceLeft;
+
+        if (!flipColliderWithFacing || col == null) return;
+        col.offset = new Vector2(faceLeft ? -colFlipX : colFlipX, colBaseOffsetY);
     }
 
     // 地面普通跳：带水平冲量（v6）
@@ -561,12 +649,12 @@ public class PlayerController2D : MonoBehaviour
     {
         rb.velocity = new Vector2(-wallDirSide * wallJumpHSpeed, jumpVelocity);
         currentJumpSpeed = jumpVelocity;
-        varJumpTimer = varJumpTime;
+        varJumpTimer = InWater ? waterVarJumpTime : varJumpTime;   // v31: 水中用独立时长
         wallForceTimer = dirAtJump != 0 ? wallJumpForceTime : 0f;
         airJumpsUsed = 0;
         dashAvailable = true;
         jumpBufferTimer = 0f;
-        if (sr != null) sr.flipX = wallDirSide == 1;
+        SetFacing(wallDirSide != 1);   // v29
         wallFacingTimer = wallJumpFacingTime;
 
         MusicConductor.Play(Instrument.Violin);
@@ -576,8 +664,9 @@ public class PlayerController2D : MonoBehaviour
     {
         isDashing = true;
         dashDir = d;
-        dashTimer = dashDuration;
-        dashCdTimer = dashDuration + dashCooldown;
+        float useDur = InWater ? waterDashDuration : dashDuration;   // v25: 水下冲刺用独立时长
+        dashTimer = useDur;
+        dashCdTimer = useDur + dashCooldown;
         dashAvailable = false;
         dashRefillTimer = dashRefillDelay;
         dashBufferTimer = 0f;

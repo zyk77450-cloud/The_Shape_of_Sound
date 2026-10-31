@@ -153,7 +153,11 @@ public class PlayerHealth2D : MonoBehaviour
         Current = maxHealth;
         dead = false;
         if (rb != null) { rb.simulated = true; rb.velocity = Vector2.zero; }
-        if (pc != null) pc.enabled = true;
+        if (pc != null)
+        {
+            pc.enabled = true;
+            pc.ResetMovementState();   // v30: 重生后跳跃/二段跳/冲刺全部重置
+        }
         iframesTimer = respawnInvincibleTime;
 
         onRespawned.Invoke();

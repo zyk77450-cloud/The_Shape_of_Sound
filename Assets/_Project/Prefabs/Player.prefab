@@ -78,7 +78,7 @@ SpriteRenderer:
   m_LightmapParameters: {fileID: 0}
   m_SortingLayerID: 0
   m_SortingLayer: 0
-  m_SortingOrder: 0
+  m_SortingOrder: -3
   m_Sprite: {fileID: 21300000, guid: 59171e3fd3f24bacb047ecced6d9ce90, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
@@ -126,6 +126,7 @@ MonoBehaviour:
   canDoubleJump: 0
   canDash: 0
   canWallJump: 0
+  canSwim: 0
   moveSpeed: 13
   accel: 200
   airAccel: 160
@@ -171,6 +172,14 @@ MonoBehaviour:
   swimStrokeSpeed: 11
   swimStrokeCooldown: 0.35
   enterWaterDamp: 0.5
+  swimGravityScale: 0.35
+  swimMaxFall: -3
+  waterGravityScale: 0.35
+  waterMaxFall: -4
+  waterMoveMul: 0.65
+  waterJumpMul: 0.8
+  waterDashSpeed: 20
+  waterDashDuration: 0.2
   groundCastDistance: 0.08
   groundLayer:
     serializedVersion: 2
@@ -181,6 +190,7 @@ MonoBehaviour:
   testUnlockJumpKey: 282
   testUnlockDashKey: 283
   testUnlockWallJumpKey: 284
+  testUnlockSwimKey: 285
 --- !u!61 &6018982231567000326
 BoxCollider2D:
   m_ObjectHideFlags: 0
