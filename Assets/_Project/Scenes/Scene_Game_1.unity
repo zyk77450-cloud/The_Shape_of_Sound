@@ -198538,6 +198538,10 @@ PrefabInstance:
       propertyPath: patrolSpeed
       value: 3
       objectReference: {fileID: 0}
+    - target: {fileID: 1799129778355081044, guid: 9250e5bfa81da854687109a55ce77079, type: 3}
+      propertyPath: wallCheckDist
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 4229925210559261384, guid: 9250e5bfa81da854687109a55ce77079, type: 3}
       propertyPath: m_RootOrder
       value: 2

@@ -2,10 +2,13 @@ using UnityEngine;
 using UnityEngine.Events;
 
 /// <summary>
-/// 地面敌人：巡逻/追击 + 接触伤害 + 回声显红（继承 WaveReceivable2D）。
-/// 巡逻：撞墙（含矮台阶）或前脚探到悬崖 → 调头；调头有冷却（v3：防窄通道/小平台每帧来回翻面）。
-/// 追击：玩家进入半径后朝玩家走，撞墙跳一下翻矮障碍，允许跳下平台跟到底。
-/// 探测全部以自身碰撞体边界为基准；悬崖探测点在前脚外侧（v3 修复：原来从中心量，小平台双向误判）。
+/// 地面敌人（v4：追击智能）。
+/// 巡逻：撞墙（含矮台阶）或前脚悬崖 → 调头（带冷却）。
+/// 追击（v4）：
+///   - 遇大沟起跳跨越（小落差直接走下去）；
+///   - 同一面墙最多跳 maxHopTries 次，翻不过去不再当弹簧；
+///   - 卡住 giveUpStuckTime 秒 → 放弃追击，冷却 chaseCooldown 秒回巡逻。
+/// 回声显红：被波扫到全身变红 revealedDuration 秒。
 /// 选中敌人时 Scene 视图画出所有探测射线。
 /// </summary>
 [RequireComponent(typeof(Rigidbody2D))]
@@ -17,8 +20,16 @@ public class EnemyChaser2D : WaveReceivable2D
     public float chaseSpeed = 5.5f;
     public float detectRadius = 9f;          // 追击探测半径
     public bool useLineOfSight = false;      // true 时墙后看不到玩家
-    public bool canHop = true;               // 追击撞墙时跳一下（翻矮障碍）
+    public float turnCooldown = 0.25f;       // 巡逻调头最小间隔
+
+    [Header("追击智能（v4）")]
+    public bool canHop = true;               // 追击撞墙跳（翻矮障碍）
     public float hopVelocity = 11f;
+    public int maxHopTries = 2;              // 同一面墙最多跳几次，翻不过去就放弃
+    public bool leapGaps = true;             // 追击遇大沟起跳跨越
+    public float leapX = 7f;                 // 跨沟水平速度
+    public float giveUpStuckTime = 1.2f;     // 卡住多久放弃追击
+    public float chaseCooldown = 2f;         // 放弃后多久才重新追
 
     [Header("接触伤害")]
     public int damage = 1;
@@ -35,9 +46,8 @@ public class EnemyChaser2D : WaveReceivable2D
     [Header("探测")]
     public LayerMask groundLayer;             // 勾 Ground（墙/边缘/视线都用它）
     public float wallCheckDist = 0.4f;        // 超出身体多少格算"撞墙"
-    public float ledgeCheckDist = 0.25f;      // 前脚往外多少格开始探悬崖（v3：从前脚外侧量）
+    public float ledgeCheckDist = 0.25f;      // 前脚往外多少格开始探悬崖
     public float ledgeDepth = 0.35f;          // 脚下多少格内没地 = 悬崖
-    public float turnCooldown = 0.25f;        // v3：两次调头的最小间隔（防来回翻面）
 
     Rigidbody2D rb;
     SpriteRenderer sr;
@@ -47,6 +57,9 @@ public class EnemyChaser2D : WaveReceivable2D
     int facing = 1;
     float revealTimer;
     float turnCdTimer;
+    float chaseCdTimer;      // v4：放弃后的追击冷却
+    float stuckTimer;        // v4：卡住计时
+    int hopTries;            // v4：这面墙已跳次数
     bool chasing;
 
     // ---- 以碰撞体边界为基准的基准点 ----
@@ -61,6 +74,10 @@ public class EnemyChaser2D : WaveReceivable2D
         sr = GetComponent<SpriteRenderer>();
         col = GetComponent<Collider2D>();
         rb.freezeRotation = true;
+
+        // 静默错配置自检：Layer 没勾时所有探测全瞎，但不报错——这里把它变成显式报错
+        if (groundLayer.value == 0)
+            Debug.LogError("[敌人] " + name + " 的 Ground Layer 没有勾任何层！墙/悬崖/着地检测全部失效。选中它，把 Ground Layer 勾上 Ground。");
 
         var pc = FindObjectOfType<PlayerController2D>();
         if (pc != null)
@@ -82,9 +99,11 @@ public class EnemyChaser2D : WaveReceivable2D
             if (revealTimer <= 0f) SetLook(false);
         }
         turnCdTimer -= dt;
+        chaseCdTimer -= dt;
 
-        // ---- 是否追击 ----
-        chasing = player != null
+        // ---- 是否追击（含放弃冷却）----
+        chasing = chaseCdTimer <= 0f
+                  && player != null
                   && Vector2.Distance(transform.position, player.position) <= detectRadius
                   && (!useLineOfSight || SightClear());
 
@@ -93,21 +112,51 @@ public class EnemyChaser2D : WaveReceivable2D
 
         bool wallAhead = WallAhead(facing);
         bool ledgeAhead = LedgeAhead(facing);
+        bool grounded = Grounded();
         float speed = chasing ? chaseSpeed : patrolSpeed;
 
         if (chasing)
         {
-            // 撞墙 + 在地上 → 跳一下（翻矮障碍）
-            if (wallAhead && canHop && rb.velocity.y <= 0.1f && Grounded())
-                rb.velocity = new Vector2(rb.velocity.x, hopVelocity);
-            // 追击允许冲下平台（跟到底）
+            // ---- v4：卡住检测（想走却走不动 = 顶着翻不过的墙/卡角落）----
+            if (Mathf.Abs(rb.velocity.x) > 1f) stuckTimer = 0f;
+            else stuckTimer += dt;
+
+            if (stuckTimer >= giveUpStuckTime)
+            {
+                chaseCdTimer = chaseCooldown;      // 放弃，冷却后才会再追
+                stuckTimer = 0f;
+                hopTries = 0;
+                chasing = false;
+            }
+        }
+        else stuckTimer = 0f;
+
+        if (chasing)
+        {
+            // 撞墙：限额内起跳翻越；超次数不跳（贴墙累积 stuckTimer → 放弃）
+            if (wallAhead)
+            {
+                if (canHop && grounded && rb.velocity.y <= 0.1f && hopTries < maxHopTries)
+                {
+                    rb.velocity = new Vector2(rb.velocity.x, hopVelocity);
+                    hopTries++;
+                }
+            }
+            else if (grounded) hopTries = 0;       // 翻过来了/没墙了，重置次数
+
+            // 悬崖：大沟起跳跨越，小落差直接走下去
+            if (ledgeAhead && leapGaps && grounded && rb.velocity.y <= 0.1f
+                && DeepLedgeAhead(facing))
+            {
+                rb.velocity = new Vector2(facing * leapX, hopVelocity);
+            }
+
             rb.velocity = new Vector2(facing * speed, rb.velocity.y);
         }
         else
         {
             // 巡逻：着地 + 不在冷却中 + 撞墙/悬崖 → 调头
-            //（v3 冷却：窄通道两边都是墙、小平台两边都是崖时，最多 0.25 秒翻一次，不再每帧抽搐）
-            if (Grounded() && turnCdTimer <= 0f && (wallAhead || ledgeAhead))
+            if (grounded && turnCdTimer <= 0f && (wallAhead || ledgeAhead))
             {
                 facing = -facing;
                 turnCdTimer = turnCooldown;
@@ -119,14 +168,16 @@ public class EnemyChaser2D : WaveReceivable2D
     }
 
     // ================= 探测 =================
+    // v5 修复：竖向探针原来从"脚底再往下 0.05"（地砖内部）发射，
+    // 遇到 Queries Start In Colliders 被关闭的工程就全部失明（地:False 崖:True）。
+    // 现在一律从身体中心（空气层）往下打，穿过自身后从上方进入地面，不受该设置影响。
 
-    // 脚下 0.2 内有地 = 站着
     bool Grounded()
     {
-        return Physics2D.Raycast(BottomCenter, Vector2.down, 0.2f, groundLayer);
+        return Physics2D.Raycast(Center, Vector2.down, col.bounds.extents.y + 0.2f, groundLayer);
     }
 
-    // 撞墙：身体中部 + 膝部两条横射线（任一被挡都算墙，1格高的台阶也能发现）
+    // 撞墙：身体中部 + 膝部两条横射线（1 格高台阶也能发现）
     bool WallAhead(int dir)
     {
         float len = HalfWidth + wallCheckDist;
@@ -135,11 +186,18 @@ public class EnemyChaser2D : WaveReceivable2D
             || Physics2D.Raycast(knee, Vector2.right * dir, len, groundLayer);
     }
 
-    // 悬崖：前脚外侧往下探（v3：从"半宽+偏移"量，保证探测点在身体外面）
+    // 悬崖：前脚外侧、往下探到脚底以下 ledgeDepth
     bool LedgeAhead(int dir)
     {
-        Vector2 probe = BottomCenter + Vector2.right * dir * (HalfWidth + ledgeCheckDist);
-        return Physics2D.Raycast(probe, Vector2.down, ledgeDepth, groundLayer) == false;
+        Vector2 probe = Center + Vector2.right * dir * (HalfWidth + ledgeCheckDist);
+        return Physics2D.Raycast(probe, Vector2.down, col.bounds.extents.y + ledgeDepth, groundLayer) == false;
+    }
+
+    // 大沟：前脚外侧往下 1.6 格都没有地 = 掉下去很深，值得跳一下跨过去
+    bool DeepLedgeAhead(int dir)
+    {
+        Vector2 probe = Center + Vector2.right * dir * (HalfWidth + ledgeCheckDist);
+        return Physics2D.Raycast(probe, Vector2.down, col.bounds.extents.y + 1.6f, groundLayer) == false;
     }
 
     bool SightClear()
@@ -174,7 +232,7 @@ public class EnemyChaser2D : WaveReceivable2D
         sr.color = c;
     }
 
-    // 选中时画出探测射线：红=墙探，黄=脚/悬崖探，白=追击半径
+    // 选中时画出探测射线：红=墙探，黄=着地/悬崖探（都从身体中心往下），白=追击半径
     void OnDrawGizmosSelected()
     {
         if (col == null) return;
@@ -184,9 +242,9 @@ public class EnemyChaser2D : WaveReceivable2D
         Gizmos.DrawRay(Center, Vector2.right * facing * len);
         Gizmos.DrawRay(knee, Vector2.right * facing * len);
         Gizmos.color = Color.yellow;
-        Gizmos.DrawRay(BottomCenter, Vector2.down * 0.2f);
-        Gizmos.DrawRay(BottomCenter + Vector2.right * facing * (HalfWidth + ledgeCheckDist),
-                       Vector2.down * ledgeDepth);
+        Gizmos.DrawRay(Center, Vector2.down * (col.bounds.extents.y + 0.2f));
+        Gizmos.DrawRay(Center + Vector2.right * facing * (HalfWidth + ledgeCheckDist),
+                       Vector2.down * (col.bounds.extents.y + ledgeDepth));
         Gizmos.color = new Color(1f, 1f, 1f, 0.25f);
         Gizmos.DrawWireSphere(transform.position, detectRadius);
     }

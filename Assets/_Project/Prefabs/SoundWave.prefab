@@ -148,3 +148,13 @@ MonoBehaviour:
   maxRadius: 18
   fadeTime: 0.35
   segments: 96
+  reflectOnWalls: 1
+  wallLayer:
+    serializedVersion: 2
+    m_Bits: 8
+  reflectRays: 24
+  minReflectDist: 0.8
+  reflectStrength: 0.5
+  reflectionsTriggerReceivers: 0
+  alphaScale: 1
+  notifyReceivers: 1
