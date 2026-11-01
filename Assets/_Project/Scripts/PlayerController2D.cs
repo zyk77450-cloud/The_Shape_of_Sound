@@ -181,6 +181,10 @@ public class PlayerController2D : MonoBehaviour
     readonly RaycastHit2D[] hits = new RaycastHit2D[8];
     float airPeakY;                       // v11: 这一跳的空中最高点
 
+    [Header("资源归属规则")]
+    [Tooltip("勾上 = 冲刺会把二段跳还给你（旧行为，容易变成无限二段跳）\n不勾 = 冲刺不刷新二段跳（推荐）")]
+    public bool dashRefillsJump = false;   // v35: 冲刺是否刷新二段跳
+
     int lastDir = 1;
     float coyoteTimer, jumpBufferTimer;
     int airJumpsUsed;
@@ -673,7 +677,7 @@ public class PlayerController2D : MonoBehaviour
 
         MusicConductor.Play(Instrument.Trumpet);
         dashStartedOnGround = coyoteTimer > 0f && !InWater;   // 水中冲刺不算地面冲刺
-        airJumpsUsed = 0;
+        if (dashRefillsJump) airJumpsUsed = 0;                // v35: 默认不刷新二段跳
         varJumpTimer = 0f;
         rb.gravityScale = 0f;
         if (dashHitstop && !InWater) StartCoroutine(Hitstop());   // 水中不放顿帧
