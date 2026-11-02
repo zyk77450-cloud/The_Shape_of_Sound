@@ -123,10 +123,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1609ef01543457240aeefd546cc53a9b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  canDoubleJump: 0
-  canDash: 0
-  canWallJump: 0
-  canSwim: 0
+  canDoubleJump: 1
+  canDash: 1
+  canWallJump: 1
+  canSwim: 1
   moveSpeed: 13
   accel: 200
   airAccel: 160
@@ -166,20 +166,29 @@ MonoBehaviour:
   wallJumpHSpeed: 17
   wallJumpForceTime: 0.08
   wallJumpFacingTime: 0.17
-  swimSpeed: 5.5
-  swimAccel: 30
-  waterDrag: 7
-  swimStrokeSpeed: 11
-  swimStrokeCooldown: 0.35
+  swimSpeed: 7.5
+  swimAccel: 45
+  waterDrag: 6
+  swimStrokeSpeed: 13
+  swimStrokeCooldown: 0.05
   enterWaterDamp: 0.5
   swimGravityScale: 0.35
-  swimMaxFall: -3
+  swimMaxFall: -4
   waterGravityScale: 0.35
   waterMaxFall: -4
   waterMoveMul: 0.65
   waterJumpMul: 0.8
   waterDashSpeed: 20
   waterDashDuration: 0.2
+  waterCoyoteTime: 0.1
+  waterVarJumpTime: 0.18
+  waterJumpCutMultiplier: 0.5
+  waterAccel: 140
+  waterDecel: 90
+  waterAirAccel: 112
+  waterAirDecel: 35
+  flipColliderWithFacing: 1
+  colliderFlipOffsetX: 0
   groundCastDistance: 0.08
   groundLayer:
     serializedVersion: 2
@@ -191,6 +200,7 @@ MonoBehaviour:
   testUnlockDashKey: 283
   testUnlockWallJumpKey: 284
   testUnlockSwimKey: 285
+  dashRefillsJump: 0
 --- !u!61 &6018982231567000326
 BoxCollider2D:
   m_ObjectHideFlags: 0

@@ -115,7 +115,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5570c39f43394b249b8765602dc7c584, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  degreesPerSecond: 90
+  degreesPerSecond: 45
   paused: 0
 --- !u!114 &8832666165406481471
 MonoBehaviour:

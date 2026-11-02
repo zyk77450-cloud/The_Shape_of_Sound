@@ -32,6 +32,14 @@ public class PlayerHealth2D : MonoBehaviour
     public LayerMask groundLayer;              // 只勾 Ground
     public float groundCastDistance = 0.1f;
 
+    [Header("重生点过滤")]
+    [Tooltip("只有法线足够朝上的面才算\"能站的顶面\"。\n0.6 ≈ 53° 以内的斜坡算可站；墙面（法线水平）会被排除。推荐 0.6~0.8。")]
+    [Range(0f, 1f)]
+    public float minGroundNormalY = 0.6f;
+
+    [Tooltip("勾上 = 破碎平台（CrumblingPlatform）不能当重生点。推荐保持勾选，否则掉下去碎掉后会在空中重生。")]
+    public bool ignoreCrumblingPlatform = true;
+
     [Header("事件（拖音效/UI）")]
     public UnityEvent onDamaged;
     public UnityEvent onDied;
@@ -84,11 +92,34 @@ public class PlayerHealth2D : MonoBehaviour
 
         // ---- 记录"最后一次站地"：着地、不在上升、且不在无敌期间 ----
         // （无敌 = 刚挨过打或刚重生，说明这附近有危险，不配当重生点）
-        if (!dead && iframesTimer <= 0f && rb != null && rb.velocity.y <= 0.1f
-            && col.Cast(Vector2.down, groundFilter, hits, groundCastDistance) > 0)
+        if (!dead && iframesTimer <= 0f && rb != null && rb.velocity.y <= 0.1f)
         {
-            lastGroundedPos = transform.position;
+            int n = col.Cast(Vector2.down, groundFilter, hits, groundCastDistance);
+            if (n > 0 && IsStableGround(n))
+                lastGroundedPos = transform.position;
         }
+    }
+
+    /// <summary>
+    /// 脚下这几块碰撞体里，有没有一块"能当重生点"的：
+    ///   · 法线朝上（顶面，不是墙侧面/太陡的坡）
+    ///   · 不是破碎平台
+    /// </summary>
+    bool IsStableGround(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            RaycastHit2D h = hits[i];
+            if (h.collider == null) continue;
+
+            if (h.normal.y < minGroundNormalY) continue;   // 墙面 / 陡坡
+
+            if (ignoreCrumblingPlatform
+                && h.collider.GetComponentInParent<CrumblingPlatform>() != null) continue;
+
+            return true;
+        }
+        return false;
     }
 
     // ============ 对外接口：陷阱调用 / Inspector 拖线 ============
