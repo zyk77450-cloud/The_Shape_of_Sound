@@ -230,6 +230,10 @@ public class PlayerController2D : MonoBehaviour
     readonly List<Collider2D> ignoredPlatforms = new List<Collider2D>();
     float dropTimer;
 
+    // ---- v48: 打击感三件套（震屏/压缩拉伸/尘土）----
+    PlayerFx2D fx;
+    bool wasGrounded;
+
     public void UnlockDoubleJump() { canDoubleJump = true;  Debug.Log("[能力] 解锁二段跳！"); }
     public void UnlockDash()       { canDash = true;        Debug.Log("[能力] 解锁冲刺！"); }
     public void UnlockWallJump()   { canWallJump = true;    Debug.Log("[能力] 解锁蹬墙跳！"); }
@@ -274,6 +278,7 @@ public class PlayerController2D : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         sr = GetComponent<SpriteRenderer>();
         col = GetComponent<Collider2D>();
+        fx = GetComponent<PlayerFx2D>();   // v48
         rb.freezeRotation = true;
 
         // v29: 记录碰撞体基础偏移，供「跟随朝向翻转」使用
@@ -448,6 +453,11 @@ public class PlayerController2D : MonoBehaviour
                 dashAvailable = true;
             }
         }
+
+        // v48: 落地 → 尘土 + 压缩（落差越大越猛；必须在 airPeakY 重置前读落差）
+        if (grounded && !wasGrounded && fx != null && !InWater)
+            fx.NotifyLanded(Mathf.Clamp01(FallDistance / 6f));
+        wasGrounded = grounded;
 
         // v11: 记录“这一跳的空中最高点”
         if (grounded) airPeakY = rb.position.y;
@@ -656,6 +666,7 @@ public class PlayerController2D : MonoBehaviour
             else if (canDoubleJump && airJumpsUsed < 1)
             {
                 airJumpsUsed++;
+                if (fx != null) fx.NotifyDoubleJumped();   // v48: 二段跳涟漪
                 DoJump(airJumpVelocity, 0);
             }
         }
@@ -685,6 +696,7 @@ public class PlayerController2D : MonoBehaviour
         groundDashJumpTimer = 0f;
 
         MusicConductor.Play(Instrument.Harp);
+        if (fx != null) fx.NotifyJumped();   // v48: 起跳拉长+踢尘
     }
 
     // 超级跳：地面冲刺后马上起跳（v6）
@@ -697,6 +709,7 @@ public class PlayerController2D : MonoBehaviour
         coyoteTimer = 0f;
         groundDashJumpTimer = 0f;
         MusicConductor.Play(Instrument.BassDrum);
+        if (fx != null) fx.NotifyJumped();   // v48
         Debug.Log("[超级跳]");
     }
 
@@ -714,6 +727,7 @@ public class PlayerController2D : MonoBehaviour
         wallFacingTimer = wallJumpFacingTime;
 
         MusicConductor.Play(Instrument.Violin);
+        if (fx != null) fx.NotifyJumped();   // v48: 蹬墙跳也拉一下
     }
 
     void StartDash(Vector2 d)
@@ -728,6 +742,7 @@ public class PlayerController2D : MonoBehaviour
         dashBufferTimer = 0f;
 
         MusicConductor.Play(Instrument.Trumpet);
+        if (fx != null) fx.NotifyDashed(d);  // v48: 冲刺震屏+喷尘
         dashStartedOnGround = coyoteTimer > 0f && !InWater;   // 水中冲刺不算地面冲刺
         if (dashRefillsJump) airJumpsUsed = 0;                // v35: 默认不刷新二段跳
         varJumpTimer = 0f;
