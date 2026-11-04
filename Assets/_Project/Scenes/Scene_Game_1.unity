@@ -206596,6 +206596,19 @@ MonoBehaviour:
   groundMask:
     serializedVersion: 2
     m_Bits: 8
+  doubleJumpRipple: {fileID: 6593998383044152484, guid: 2ad886256ed16bc469510e3f84f6cd3b, type: 3}
+  streaks:
+    color:
+      serializedVersion: 2
+      rgba: 3875535073
+    dashStreakLenMin: 0.5
+    dashStreakLenMax: 1
+    dashStreakLife: 0.22
+    thickness: 1
+    liftCount: 7
+    liftLen: 0.45
+    liftLife: 0.28
+    liftSpread: 100
 --- !u!4 &1877226635 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4154690117238617732, guid: 1cabef382aeea30478f712ffb1bad839, type: 3}
