@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 /// <summary>
 /// 按 Q / 鼠标左键 / 触屏"波"键发出回声。挂在 Player 上。
@@ -24,8 +25,9 @@ public class SoundWaveEmitter2D : MonoBehaviour
     void Update()
     {
         cd -= Time.deltaTime;
+        bool uiBlock = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         bool pressed = Input.GetKeyDown(waveKey)
-                    || (alsoMouseLeft && Input.GetMouseButtonDown(0))
+                    || (alsoMouseLeft && Input.GetMouseButtonDown(0) && !uiBlock)   // 点在 UI 上不发波
                     || TouchInput.wavePressed;
         TouchInput.wavePressed = false;
 

@@ -13,6 +13,8 @@ public static class TouchInput
     public static bool wavePressed;
     public static bool interactPressed;
     public static bool dashPressed;
+    public static bool jumpHeld;   // 跳跃按住（触屏可变跳高用）
+    public static float v;         // 垂直轴 -1~1（触屏摇杆：游泳八向 / 下穿平台）
 }
 
 // ============================================================
@@ -394,7 +396,8 @@ public class PlayerController2D : MonoBehaviour
         bool right = Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow) || TouchInput.right;
         int dir = left && right ? lastDir : left ? -1 : right ? 1 : 0;
         float vRaw = Input.GetAxisRaw("Vertical");
-        bool jumpHeld = Input.GetButton("Jump");
+        if (Mathf.Abs(TouchInput.v) > 0.05f) vRaw = TouchInput.v;          // 触屏摇杆垂直分量优先
+        bool jumpHeld = Input.GetButton("Jump") || TouchInput.jumpHeld;    // 触屏按住并入可变跳高
 
         // ---- 2. 冲刺输入：进缓冲 ----
         if (Input.GetKeyDown(dashKey) || TouchInput.dashPressed)
