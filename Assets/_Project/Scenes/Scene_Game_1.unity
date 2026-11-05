@@ -4264,6 +4264,54 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 7577543615770768436, guid: 65b77bc18418fb0418bfa50cf5406b7a, type: 3}
   m_PrefabInstance: {fileID: 2043992829}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &710082139
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 710082141}
+  - component: {fileID: 710082140}
+  m_Layer: 0
+  m_Name: PixelFxLayer
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &710082140
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 710082139}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6bdbd25899e591144bb724eb6bf0617e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  frameSize: {x: 640, y: 360}
+  ambient: 1
+  colorLevels: 0
+  gpuComposite: 1
+--- !u!4 &710082141
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 710082139}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 24
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &758774599
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -207074,6 +207122,72 @@ MonoBehaviour:
           m_BoolArgument: 0
         m_CallState: 2
   debugLog: 1
+--- !u!114 &1865676907
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1865676890}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 036ab358be6389e41a77e5d16fab8393, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  dashShake: 1
+  dashShakeDuration: 0.12
+  dashShakeMagnitude: 0.1
+  shapeTarget: {fileID: 0}
+  landSquashY: 0.62
+  landSquashX: 1.3
+  jumpStretchY: 1.28
+  jumpStretchX: 0.82
+  shapeTime: 0.16
+  dust:
+    dustColor:
+      serializedVersion: 2
+      rgba: 4286618802
+    darkColor:
+      serializedVersion: 2
+      rgba: 4282801264
+    debrisColor:
+      serializedVersion: 2
+      rgba: 4283986570
+    landingPuffs: 14
+    landingDebris: 6
+    landingSpeed: 3
+    landingLift: 1.7
+    landingLife: 0.8
+    landingRadius: 2
+    stepPuffs: 4
+    stepSpeed: 1
+    stepLift: 0.75
+    stepLife: 0.45
+    stepRadius: 2
+    stepIntervalMin: 0.2
+    stepIntervalMax: 0.4
+    gravity: 3.8
+    debrisGravity: 14.4
+    drag: 3.2
+    growth: 1.9
+    glow: 0.12
+    glowRadius: 4
+  groundMask:
+    serializedVersion: 2
+    m_Bits: 8
+  doubleJumpRipple: {fileID: 6593998383044152484, guid: 2ad886256ed16bc469510e3f84f6cd3b, type: 3}
+  streaks:
+    color:
+      serializedVersion: 2
+      rgba: 3875535073
+    dashStreakLenMin: 0.5
+    dashStreakLenMax: 1
+    dashStreakLife: 0.22
+    thickness: 1
+    liftCount: 7
+    liftLen: 0.45
+    liftLife: 0.28
+    liftSpread: 100
 --- !u!4 &1877226635 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4154690117238617732, guid: 1cabef382aeea30478f712ffb1bad839, type: 3}
