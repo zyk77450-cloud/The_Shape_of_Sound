@@ -220,6 +220,7 @@ public class PlayerController2D : MonoBehaviour
 
     // ---- 水域状态（v15：每帧对账，不依赖触发事件）----
     int waterCount;
+    bool wasGroundedLastFrame;   // v50: 上一帧是否着地（用于落地音效）
     float strokeCdTimer;
     float strokeDragTimer;   // v36: 划水后"大阻力"剩余时间
     bool InWater => waterCount > 0;
@@ -267,6 +268,22 @@ public class PlayerController2D : MonoBehaviour
         strokeDragTimer = 0f;   // v36
 
         if (rb != null) rb.velocity = Vector2.zero;
+    }
+
+    [Header("外部输入（演出用）")]
+    [Tooltip("勾上 = 忽略键盘和触屏，改用 External Move 的值控制左右。演出脚本会临时打开它。")]
+    public bool externalInput = false;
+
+    [Tooltip("模拟的横向输入：-1 左 / 0 停 / 1 右。只在勾了 External Input 时生效。")]
+    [Range(-1f, 1f)]
+    public float externalMove = 0f;
+
+    // v48: 组件被重新启用时（比如过场结束）自动解除"演出接管"，
+    //      否则过场放手后玩家会发现按方向键没反应。
+    void OnEnable()
+    {
+        externalInput = false;
+        externalMove = 0f;
     }
 
     void Awake()
@@ -390,17 +407,19 @@ public class PlayerController2D : MonoBehaviour
         strokeCdTimer -= dt;
 
         // ---- 1. 方向输入（A+D 同按取后按方向）----
-        if (Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.LeftArrow))  lastDir = -1;
-        if (Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.RightArrow)) lastDir = 1;
-        bool left  = Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)  || TouchInput.left;
-        bool right = Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow) || TouchInput.right;
+        bool ext = externalInput;                                            // v48: 演出接管
+        if (!ext && (Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.LeftArrow)))  lastDir = -1;
+        if (!ext && (Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.RightArrow))) lastDir = 1;
+        bool left  = !ext && (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)  || TouchInput.left);
+        bool right = !ext && (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow) || TouchInput.right);
         int dir = left && right ? lastDir : left ? -1 : right ? 1 : 0;
-        float vRaw = Input.GetAxisRaw("Vertical");
+        if (ext) dir = Mathf.Clamp(Mathf.RoundToInt(externalMove), -1, 1);  // v48: 模拟方向
+        float vRaw = ext ? 0f : Input.GetAxisRaw("Vertical");
         if (Mathf.Abs(TouchInput.v) > 0.05f) vRaw = TouchInput.v;          // 触屏摇杆垂直分量优先
-        bool jumpHeld = Input.GetButton("Jump") || TouchInput.jumpHeld;    // 触屏按住并入可变跳高
+        bool jumpHeld = !ext && (Input.GetButton("Jump") || TouchInput.jumpHeld);   // v48: 演出时不跳
 
         // ---- 2. 冲刺输入：进缓冲 ----
-        if (Input.GetKeyDown(dashKey) || TouchInput.dashPressed)
+        if (!ext && (Input.GetKeyDown(dashKey) || TouchInput.dashPressed))   // v48
             dashBufferTimer = dashBufferTime;
         TouchInput.dashPressed = false;
 
@@ -452,6 +471,11 @@ public class PlayerController2D : MonoBehaviour
         // v11: 记录“这一跳的空中最高点”
         if (grounded) airPeakY = rb.position.y;
         else airPeakY = Mathf.Max(airPeakY, rb.position.y);
+
+        // v50: 落地音效（陆地 / 水中各一套）；冲刺落地不响，避免和冲刺音撞
+        if (grounded && !wasGroundedLastFrame && !isDashing)
+            MusicConductor.PlayLand(InWater);
+        wasGroundedLastFrame = grounded;
 
         // ---- 4. 落地：刷新土狼/二段跳；冲刺延迟后填充 ----
         if (grounded && !isDashing)
@@ -639,7 +663,7 @@ public class PlayerController2D : MonoBehaviour
         }
 
         // ---- 11. 跳跃缓冲 ----
-        if (Input.GetButtonDown("Jump") || TouchInput.jumpPressed)
+        if (!externalInput && (Input.GetButtonDown("Jump") || TouchInput.jumpPressed))   // v48
             jumpBufferTimer = jumpBufferTime;
         TouchInput.jumpPressed = false;
 

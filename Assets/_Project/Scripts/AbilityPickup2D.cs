@@ -40,6 +40,7 @@ public class AbilityPickup2D : MonoBehaviour
         if (unlockWallJump)   pc.UnlockWallJump();   // v8: 蹬墙跳道具
         if (unlockSwim)       pc.UnlockSwim();       // v20: 游泳道具
 
+        MusicConductor.PlayPickup();          // v50: 拾取音（不吃连击变调）
         onPicked.Invoke();
         picked = true;
         Destroy(gameObject);

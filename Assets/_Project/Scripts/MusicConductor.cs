@@ -57,6 +57,24 @@ public class MusicConductor : MonoBehaviour
     [Tooltip("里拉琴音量（跳跃，出现最频繁，别太响）。推荐 0.30~0.35。")]
     [Range(0f, 1f)] public float volumeHarp = 0.32f;
 
+    [Header("一次性音效（不吃连击变调，音高固定）")]
+    [Tooltip("陆地落地音。主角从空中踩到地面时响。留空 = 不播。")]
+    public AudioClip landClip;
+    [Tooltip("水中落地音。在水里踩到池底时响。\n留空 = 自动改用陆地落地音。")]
+    public AudioClip waterLandClip;
+    [Tooltip("捡到能力道具时的音。留空 = 不播。")]
+    public AudioClip pickupClip;
+
+    [Tooltip("陆地落地音量。落地很频繁，别太响。推荐 0.5~0.8。")]
+    [Range(0f, 1f)] public float volumeLand = 0.65f;
+    [Tooltip("水中落地音量。水下发闷，可比陆地稍大。推荐 0.5~0.8。")]
+    [Range(0f, 1f)] public float volumeWaterLand = 0.60f;
+    [Tooltip("捡道具音量。推荐 0.7~0.9。")]
+    [Range(0f, 1f)] public float volumePickup = 0.85f;
+
+    [Tooltip("一次性音效的随机音高幅度。0.04 = 每次在 ±4% 之间随机，避免同一个音听腻。\n0 = 完全固定。")]
+    [Range(0f, 0.2f)] public float oneShotPitchJitter = 0.04f;
+
     [Header("连击变调（同一个音连续触发会越来越高）")]
     [Tooltip("勾上 = 开启连击变调；不勾 = 每个乐器永远同一个音高。")]
     public bool enableCombo = true;
@@ -81,6 +99,10 @@ public class MusicConductor : MonoBehaviour
     AudioSource[,] voices;      // [乐器, 声道]
     int[] nextVoice;            // 每个乐器下一个要用哪个声道（轮流用）
     float[] lastPlayTime;       // 每个乐器上次发声的时间（用于 minInterval）
+
+    const int ONESHOT_VOICES = 3;   // 落地/拾取专用声道，独立于乐器声道
+    AudioSource[] oneShotVoices;
+    int nextOneShot;
 
     float lastNoteTime = -999f; // 全局上一次发声时间（用于连击窗口）
     int comboLevel = 1;         // 当前连击等级 1~3
@@ -109,6 +131,20 @@ public class MusicConductor : MonoBehaviour
                 voices[i, v] = src;
             }
         }
+
+        // 一次性音效专用声道（不参与连击变调）
+        oneShotVoices = new AudioSource[ONESHOT_VOICES];
+        for (int v = 0; v < ONESHOT_VOICES; v++)
+        {
+            var go = new GameObject("Voice_OneShot_" + v);
+            go.transform.SetParent(transform, false);
+            var src = go.AddComponent<AudioSource>();
+            src.playOnAwake = false;
+            src.loop = false;
+            src.spatialBlend = 0f;
+            src.volume = 1f;
+            oneShotVoices[v] = src;
+        }
     }
 
     void OnDestroy()
@@ -127,6 +163,52 @@ public class MusicConductor : MonoBehaviour
     public static void Play(Instrument ins)
     {
         if (Instance != null) Instance.PlayNote(ins);
+    }
+
+    /// <summary>
+    /// 落地音。inWater = true 时用水中版（没设就自动用陆地版）。
+    /// 不走连击变调，音高固定（只带一点点随机）。
+    /// </summary>
+    public static void PlayLand(bool inWater = false)
+    {
+        if (Instance != null) Instance.PlayLandInternal(inWater);
+    }
+
+    /// <summary>
+    /// 捡到能力道具的音。不走连击变调。
+    /// </summary>
+    public static void PlayPickup()
+    {
+        if (Instance != null) Instance.PlayOneShotInternal(Instance.pickupClip, Instance.volumePickup);
+    }
+
+    void PlayLandInternal(bool inWater)
+    {
+        bool useWater = inWater && waterLandClip != null;
+        AudioClip clip = useWater ? waterLandClip : landClip;
+        PlayOneShotInternal(clip, useWater ? volumeWaterLand : volumeLand);
+    }
+
+    void PlayOneShotInternal(AudioClip clip, float volume)
+    {
+        if (clip == null) return;
+        if (oneShotVoices == null || oneShotVoices.Length == 0) return;
+
+        AudioSource src = oneShotVoices[nextOneShot];
+        nextOneShot = (nextOneShot + 1) % oneShotVoices.Length;
+
+        float pitch = oneShotPitchJitter > 0f
+            ? Random.Range(1f - oneShotPitchJitter, 1f + oneShotPitchJitter)
+            : 1f;
+
+        src.Stop();
+        src.clip = clip;
+        src.pitch = pitch;
+        src.volume = volume;
+        src.Play();
+
+        if (logPlayback)
+            Debug.Log("[音乐] 一次性音效 " + clip.name + "  pitch=" + pitch.ToString("0.000"));
     }
 
     /// <summary>

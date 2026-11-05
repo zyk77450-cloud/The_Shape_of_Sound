@@ -70,6 +70,9 @@ public class CutsceneFlood : MonoBehaviour
     [Tooltip("勾上 = 过场期间锁死玩家。")]
     public bool lockPlayer = true;
 
+    [Tooltip("勾上 = 过场结束后放开玩家（解锁移动）。\n不勾 = 一直锁着，等黑屏转场接管（推荐：转场到场景 2 是程序那边的事）。")]
+    public bool releasePlayerOnFinish = false;
+
     [Tooltip("勾上 = 整段过场只播一次。")]
     public bool playOnce = true;
 
@@ -195,10 +198,11 @@ public class CutsceneFlood : MonoBehaviour
         yield return WaitT(3, t0);
         DropGear(gearRight, false);
 
-        // 等齿轮都落地，再放开玩家
+        // 等齿轮都落地
         while (gearsExpected > 0 && gearsLanded < gearsExpected) yield return null;
 
-        if (lockPlayer) FreezePlayer(false);
+        // 默认不解锁：黑屏后要把玩家锁着交给转场（切场景是程序那边的事）
+        if (lockPlayer && releasePlayerOnFinish) FreezePlayer(false);
         if (onFinished != null) onFinished.Invoke();
 
         playing = false;
