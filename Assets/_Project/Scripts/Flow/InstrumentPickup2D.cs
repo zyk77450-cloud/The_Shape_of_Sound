@@ -13,11 +13,22 @@ public class InstrumentPickup2D : MonoBehaviour
     [Tooltip("收集顺序编号：必须按 0→1→2→3 摆放（0 = 玩家最先该遇到的那件）")]
     public int id;
 
+    [Header("解锁哪种能力（顺序对了就给，勾一个）")]
+    [Tooltip("二段跳")]
+    public bool unlockDoubleJump;
+    [Tooltip("冲刺")]
+    public bool unlockDash;
+    [Tooltip("蹬墙跳 + 贴墙下滑")]
+    public bool unlockWallJump;
+    [Tooltip("游泳")]
+    public bool unlockSwim;
+
     [Header("反馈")]
     public AudioClip pickupClip;          // 可空
     public UnityEvent onPicked;
 
     bool picked;
+    PlayerController2D pc;                // 触碰时记下玩家，Collect 里解锁能力用
 
     void Reset() { GetComponent<Collider2D>().isTrigger = true; }
 
@@ -34,19 +45,30 @@ public class InstrumentPickup2D : MonoBehaviour
     void OnTriggerEnter2D(Collider2D other)
     {
         if (picked || !other.CompareTag("Player")) return;
-        if (InstrumentSequence.Instance == null)
-        {
-            Debug.LogWarning("[乐器] 场景里没有 InstrumentSequence，道具无法判序：" + name);
-            return;
-        }
-        InstrumentSequence.Instance.Submit(this);   // 顺序对不对由中枢说了算
+        pc = other.GetComponent<PlayerController2D>();
+        Collect();                          // 收集不限顺序：碰到就收
     }
 
-    // 由中枢调用（= 顺序正确）
+    // 碰到即收（顺序自由）；存档/能力/反馈在这里一起给
     public void Collect()
     {
+        if (picked) return;
         picked = true;
+
+        SaveSystem.SetInstrument(id, true);   // 进存档：背包显示 + 重开自动消失
+
         onPicked.Invoke();
+
+        // 能力解锁（勾了哪个给哪个）
+        if (pc != null)
+        {
+            if (unlockDoubleJump) pc.UnlockDoubleJump();
+            if (unlockDash)       pc.UnlockDash();
+            if (unlockWallJump)   pc.UnlockWallJump();
+            if (unlockSwim)       pc.UnlockSwim();
+        }
+
+        MusicConductor.PlayPickup();          // 拾取音
         if (pickupClip != null)
         {
             var au = GetComponent<AudioSource>();
@@ -54,5 +76,11 @@ public class InstrumentPickup2D : MonoBehaviour
             else AudioSource.PlayClipAtPoint(pickupClip, transform.position);
         }
         gameObject.SetActive(false);
+
+        // 报数：中枢记事件；全齐触发 onAllCollected
+        if (InstrumentSequence.Instance != null)
+            InstrumentSequence.Instance.NotifyCollected(id);
+        else
+            Debug.LogWarning("[乐器] 场景里没有 InstrumentSequence，集齐事件不会触发：" + name);
     }
 }

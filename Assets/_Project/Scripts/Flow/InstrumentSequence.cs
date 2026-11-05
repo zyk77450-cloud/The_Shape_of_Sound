@@ -2,11 +2,11 @@ using UnityEngine;
 using UnityEngine.Events;
 
 /// <summary>
-/// 乐器顺序收集中枢：必须按 id 0→1→2→3 的顺序触碰拾取。
-/// 顺序不对：拒绝（onWrong 反馈），已捡的不清（不惩罚手滑）；
-/// 全部按序捡完：onAllCollected（拖 GameFlowManager.GoToStage2）。
+/// 乐器收集报数中枢：道具随便什么顺序捡，捡到就报数；
+/// 全部集齐时触发 onAllCollected（可接提示/演出）。
+/// "按顺序使用"的解谜在最终机关 InstrumentLock2D 里，不在这里。
 /// 进度自动进存档：重开游戏时已捡的道具自动消失。
-/// 用法：空物体挂本脚本，length=4，On All Collected 拖 GameFlow 的 GoToStage2。
+/// 用法：空物体挂本脚本，length=6。
 /// </summary>
 public class InstrumentSequence : MonoBehaviour
 {
@@ -33,19 +33,12 @@ public class InstrumentSequence : MonoBehaviour
         }
     }
 
-    public void Submit(InstrumentPickup2D pickup)
+    /// <summary>道具捡到后报数（收集不限顺序）；全齐触发 onAllCollected。</summary>
+    public void NotifyCollected(int id)
     {
-        if (NextRequired != pickup.id)
-        {
-            onWrong.Invoke();               // 顺序不对：拒绝，等它排到再说
-            return;
-        }
-
-        SaveSystem.SetInstrument(pickup.id, true);
-        pickup.Collect();                   // 消失 + 拾取反馈
-        onCollected.Invoke(pickup.id);
-
-        if (NextRequired == -1)
+        Debug.Log($"[乐器] 收到 Id {id} ｜ Length={length} ｜ 还缺 Id: {NextRequired}");
+        onCollected.Invoke(id);
+        if (NextRequired == -1)             // -1 = 一件不剩，全齐了
             onAllCollected.Invoke();
     }
 }

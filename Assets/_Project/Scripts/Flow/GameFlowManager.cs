@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
 
@@ -29,6 +30,12 @@ public class GameFlowManager : MonoBehaviour
     public Image fadeImage;                       // 全屏黑幕（铺满、初始 Alpha 0、Raycast Target ☐）
     public Button continueButton;                 // "继续"按钮（没到过场景2时自动隐藏）
 
+    [Header("开局自带")]
+    [Tooltip("一出生背包里就有的乐器 Id（新档/读档/清档重开都会补发）；场景里同 Id 的道具自动隐藏")]
+    public int[] startingInstruments = { 0 };
+    [Tooltip("补发开局乐器后触发。要连带解锁能力就在这里接 Player 的 UnlockXxx")]
+    public UnityEvent onStartingGranted;
+
     [Header("结束菜单选项")]
     public bool clearSaveOnFinish = false;        // 通关后是否清档（策划定：保留存档 = 不勾）
 
@@ -38,10 +45,27 @@ public class GameFlowManager : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        GrantStartingInstruments();        // 越早越好：道具的 Start 要靠它隐藏同 Id 拾取物
         cam = Camera.main;
         endCanvas.alpha = 0f;
         endCanvas.interactable = false;
         endCanvas.blocksRaycasts = false;
+    }
+
+    // 补发开局乐器（已有了就不重复发）
+    void GrantStartingInstruments()
+    {
+        bool changed = false;
+        for (int i = 0; i < startingInstruments.Length; i++)
+        {
+            int id = startingInstruments[i];
+            if (id >= 0 && !SaveSystem.HasInstrument(id))
+            {
+                SaveSystem.SetInstrument(id, true);
+                changed = true;
+            }
+        }
+        if (changed) onStartingGranted.Invoke();
     }
 
     void Start()
@@ -67,6 +91,7 @@ public class GameFlowManager : MonoBehaviour
     public void NewGameWithClear()
     {
         SaveSystem.ClearAll();
+        GrantStartingInstruments();        // 清档重开也要有开局乐器
         StartCoroutine(BeginRoutine(false));
     }
 
