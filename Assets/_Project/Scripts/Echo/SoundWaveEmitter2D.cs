@@ -17,10 +17,19 @@ public class SoundWaveEmitter2D : MonoBehaviour
     [Header("音效（可留空）")]
     public AudioClip waveClip;
 
+    [Header("解锁（v52）")]
+    [Tooltip("勾上 = 必须先在玩家身上解锁 Can Echo 才发得出波。\n不勾 = 无视解锁，随时能发（调试用）。")]
+    public bool requireUnlock = true;
+
     float cd;
     AudioSource au;
+    PlayerController2D pc;
 
-    void Awake() { au = GetComponent<AudioSource>(); }
+    void Awake()
+    {
+        au = GetComponent<AudioSource>();
+        pc = GetComponent<PlayerController2D>();
+    }
 
     void Update()
     {
@@ -33,6 +42,9 @@ public class SoundWaveEmitter2D : MonoBehaviour
 
         if (pressed && cd <= 0f)
         {
+            // v52: 没解锁回声就什么都不做（也不吃冷却，解锁后立刻能按）
+            if (requireUnlock && pc != null && !pc.canEcho) return;
+
             cd = cooldown;
             if (wavePrefab == null)
             {

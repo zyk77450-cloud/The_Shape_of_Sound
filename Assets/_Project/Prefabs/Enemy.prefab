@@ -29,8 +29,8 @@ Transform:
   m_GameObject: {fileID: 6297058307859389334}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: -2.24, y: 88.1, z: 0}
-  m_LocalScale: {x: 2.5, y: 2.5, z: 1}
-  m_ConstrainProportionsScale: 0
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 1
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 0
@@ -76,8 +76,8 @@ SpriteRenderer:
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0
-  m_Sprite: {fileID: 21300000, guid: 59171e3fd3f24bacb047ecced6d9ce90, type: 3}
-  m_Color: {r: 0.8037735, g: 0.23238759, b: 0.16833748, a: 0.65882355}
+  m_Sprite: {fileID: 21300000, guid: 70c82c563765c3d4aa2e52205296bd96, type: 3}
+  m_Color: {r: 1, g: 1, b: 1, a: 0.65882355}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
@@ -132,7 +132,7 @@ BoxCollider2D:
     adaptiveTiling: 0
   m_AutoTiling: 0
   serializedVersion: 2
-  m_Size: {x: 1, y: 1}
+  m_Size: {x: 2.1, y: 2.8}
   m_EdgeRadius: 0
 --- !u!114 &1799129778355081044
 MonoBehaviour:
@@ -153,15 +153,21 @@ MonoBehaviour:
   chaseSpeed: 5.5
   detectRadius: 9
   useLineOfSight: 0
+  turnCooldown: 0.25
   canHop: 1
   hopVelocity: 11
+  maxHopTries: 2
+  leapGaps: 1
+  leapX: 7
+  giveUpStuckTime: 1.2
+  chaseCooldown: 2
   damage: 1
   knockbackX: 9
   knockbackY: 7
   normalColor: {r: 0.45, g: 0.3, b: 0.35, a: 1}
   normalAlpha: 1
-  revealedColor: {r: 1, g: 0.15, b: 0.2, a: 1}
-  revealedDuration: 3
+  revealedColor: {r: 0.7735849, g: 0.08027759, b: 0.12181219, a: 1}
+  revealedDuration: 2
   onEchoRevealed:
     m_PersistentCalls:
       m_Calls: []
@@ -171,4 +177,3 @@ MonoBehaviour:
   wallCheckDist: 0.6
   ledgeCheckDist: 0.7
   ledgeDepth: 0.35
-  turnCooldown: 0.25

@@ -35,7 +35,13 @@ public static class TouchInput
 [RequireComponent(typeof(Collider2D))]
 public class PlayerController2D : MonoBehaviour
 {
-    [Header("能力解锁（默认锁定，用道具或 F1/F2/F3/F4 解锁）")]
+    [Header("能力解锁（默认锁定，用道具或 F1/F2/F3/F4/F5/F6 解锁）")]
+    [Tooltip("跳跃（最基础的跳）。默认关 = 玩家只能走。\n勾上 = 按跳跃键能起跳。\n锁着的时候：普通跳、二段跳、蹬墙跳、水下跳全都做不出来。")]
+    public bool canJump = false;
+
+    [Tooltip("回声（发波）。默认关 = 按 Q 什么都不发生。\n勾上 = 可以发出声波，把远处的敌人/平台照出来。")]
+    public bool canEcho = false;
+
     [Tooltip("二段跳。默认关；勾上 = 空中还能再跳一次。")]
     public bool canDoubleJump = false;
     [Tooltip("冲刺。默认关；勾上 = 可以横向或斜向冲一段。")]
@@ -182,7 +188,9 @@ public class PlayerController2D : MonoBehaviour
     public float trailFadeSpeed = 4f;
 
     [Header("临时测试键（正式版删除 Update 里对应几行）")]
-    public KeyCode testUnlockJumpKey = KeyCode.F1;
+    public KeyCode testUnlockDoubleJumpKey = KeyCode.F1;   // v51: 原名 testUnlockJumpKey，实际解的是二段跳
+    public KeyCode testUnlockJumpKey = KeyCode.F5;         // v51: 基础跳跃
+    public KeyCode testUnlockEchoKey = KeyCode.F6;         // v52: 回声
     public KeyCode testUnlockDashKey = KeyCode.F2;
     public KeyCode testUnlockWallJumpKey = KeyCode.F3;
     public KeyCode testUnlockSwimKey = KeyCode.F4;
@@ -220,6 +228,13 @@ public class PlayerController2D : MonoBehaviour
 
     // ---- 水域状态（v15：每帧对账，不依赖触发事件）----
     int waterCount;
+
+    [Header("调试")]
+    [Tooltip("勾上后每 0.25 秒打印一次水域重叠信息（水盒范围 / 角色范围 / 计数）。\n" +
+             "专门用来排查「入水判定不生效」。正式版记得取消勾选，否则 Console 会刷屏。")]
+    public bool debugWater = false;
+
+    float debugWaterTimer;
     bool wasGroundedLastFrame;   // v50: 上一帧是否着地（用于落地音效）
     float strokeCdTimer;
     float strokeDragTimer;   // v36: 划水后"大阻力"剩余时间
@@ -239,6 +254,8 @@ public class PlayerController2D : MonoBehaviour
     public void UnlockDash()       { canDash = true;        Debug.Log("[能力] 解锁冲刺！"); }
     public void UnlockWallJump()   { canWallJump = true;    Debug.Log("[能力] 解锁蹬墙跳！"); }
     public void UnlockSwim()       { canSwim = true;        Debug.Log("[能力] 解锁游泳！"); }
+    public void UnlockJump()       { canJump = true;        Debug.Log("[能力] 解锁跳跃！"); }
+    public void UnlockEcho()       { canEcho = true;        Debug.Log("[能力] 解锁回声！"); }
 
     /// <summary>
     /// 这一跳的落差（单位：格）= 空中最高点 - 当前位置。
@@ -337,7 +354,7 @@ public class PlayerController2D : MonoBehaviour
     void WaterWalk(float dt, int hInput, bool onGround, bool jumpHeld)
     {
         // 跳：池底能跳；空中还能补一次二段跳（都按 waterJumpMul 打折）
-        if (jumpBufferTimer > 0f)
+        if (canJump && jumpBufferTimer > 0f)   // v51: 未解锁跳跃时水下也跳不了
         {
             // v26: 水下也有土狼时间 —— 刚离开池底/平台边缘的 coyoteTime 秒内
             //      按跳仍按"第一跳"处理，不会掉进下面的二段跳分支
@@ -398,7 +415,9 @@ public class PlayerController2D : MonoBehaviour
         float dt = Time.deltaTime;
 
         // ---- 0. 临时测试键 ----
-        if (Input.GetKeyDown(testUnlockJumpKey)) UnlockDoubleJump();
+        if (Input.GetKeyDown(testUnlockJumpKey)) UnlockJump();
+        if (Input.GetKeyDown(testUnlockEchoKey)) UnlockEcho();
+        if (Input.GetKeyDown(testUnlockDoubleJumpKey)) UnlockDoubleJump();
         if (Input.GetKeyDown(testUnlockDashKey)) UnlockDash();
         if (Input.GetKeyDown(testUnlockWallJumpKey)) UnlockWallJump();
 
@@ -432,6 +451,7 @@ public class PlayerController2D : MonoBehaviour
         {
             int n = col.OverlapCollider(waterFilter, overlapHits);
             int count = 0;
+
             for (int i = 0; i < n; i++)
             {
                 Collider2D w = overlapHits[i];
@@ -451,6 +471,73 @@ public class PlayerController2D : MonoBehaviour
             }
 
             waterCount = count;
+
+            // ---- v54: 调试（勾 Debug Water 才会打印）----
+            if (debugWater)
+            {
+                debugWaterTimer -= dt;
+                if (debugWaterTimer <= 0f)
+                {
+                    debugWaterTimer = 0.25f;
+
+                    Bounds pb = col.bounds;
+                    WaterZone2D[] allZones = FindObjectsOfType<WaterZone2D>();   // v54c
+                    string zoneBrief = "无";
+                    if (allZones.Length > 0)
+                    {
+                        Collider2D zc0 = allZones[0].GetComponent<Collider2D>();
+                        if (zc0 == null)
+                        {
+                            zoneBrief = allZones[0].name + "：该物体上没有 Collider2D";
+                        }
+                        else
+                        {
+                            Bounds zb0 = zc0.bounds;
+                            zoneBrief = string.Format("{0} x {1:F1}~{2:F1} y {3:F1}~{4:F1} {5} {6}",
+                                allZones[0].name, zb0.min.x, zb0.max.x, zb0.min.y, zb0.max.y,
+                                zc0.enabled ? "已启用" : "★禁用★",
+                                zc0.isTrigger ? "trigger" : "solid");
+                        }
+                    }
+                    string msg = string.Format(
+                        "[水][v54d] 角色 x {0:F2}~{1:F2}  y {2:F2}~{3:F2} | 重叠 {4} 个 | count={5} | 水区={6}",
+                        pb.min.x, pb.max.x, pb.min.y, pb.max.y, n, count, zoneBrief);
+
+                    for (int i = 0; i < n; i++)
+                    {
+                        Collider2D w = overlapHits[i];
+                        Bounds wb = w.bounds;
+                        msg += string.Format(
+                            "\n   · {0}  {1}  {2}  x {3:F1}~{4:F1}  y {5:F1}~{6:F1}",
+                            w.name,
+                            w.GetComponent<WaterZone2D>() != null ? "【水区】" : "不是水区",
+                            w.isTrigger ? "trigger" : "solid",
+                            wb.min.x, wb.max.x, wb.min.y, wb.max.y);
+                    }
+
+                    // v54c: 无论判定结果如何，都把场景里每个水区列出来
+                    {
+                        WaterZone2D[] zones = allZones;
+                        msg += string.Format("\n   场景里 WaterZone2D 共 {0} 个：", zones.Length);
+                        for (int z = 0; z < zones.Length; z++)
+                        {
+                            Collider2D zc = zones[z].GetComponent<Collider2D>();
+                            if (zc == null)
+                            {
+                                msg += "\n   · " + zones[z].name + "  —— 这个物体上没有 Collider2D";
+                                continue;
+                            }
+                            Bounds zb = zc.bounds;
+                            msg += string.Format(
+                                "\n   · {0}  x {1:F1}~{2:F1}  y {3:F1}~{4:F1}  ({5})",
+                                zones[z].name, zb.min.x, zb.max.x, zb.min.y, zb.max.y,
+                                zc.enabled ? "已启用" : "★碰撞体被禁用★");
+                        }
+                    }
+
+                    Debug.Log(msg, this);
+                }
+            }
         }
 
         // ---- 3. 检测：地面 / 墙壁 ----
@@ -551,7 +638,7 @@ public class PlayerController2D : MonoBehaviour
             rb.velocity = dashDir * (InWater ? waterDashSpeed : dashSpeed);   // v25: 水下冲刺速度独立
             if (dashTimer <= 0f) EndDash();
         }
-        else if (InWater && !canSwim && enableWallJump && wallDir != 0 && jumpBufferTimer > 0f)
+        else if (InWater && !canSwim && canJump && enableWallJump && wallDir != 0 && jumpBufferTimer > 0f)   // v51
         {
             // ================= v31：水下蹬墙跳 =================
             // 贴着墙按跳 = 蹬墙，优先于普通跳和划水。
@@ -678,7 +765,7 @@ public class PlayerController2D : MonoBehaviour
         TouchInput.jumpPressed = false;
 
         // ---- 12. 起跳（水里不走这里，由「水下行走」或「游泳」分支接管）----
-        if (jumpBufferTimer > 0f && !isDashing && !InWater)
+        if (jumpBufferTimer > 0f && !isDashing && !InWater && canJump)   // v51: 没解锁跳跃就完全跳不了
         {
             if (coyoteTimer > 0f)
             {
