@@ -9,6 +9,12 @@ using UnityEngine.Events;
 public class AbilityPickup2D : MonoBehaviour
 {
     [Header("解锁哪种能力（勾一个就行）")]
+    [Tooltip("勾上 = 捡到后学会跳跃（最基础的跳）。\n不勾 = 玩家只能走。")]
+    public bool unlockJump;
+
+    [Tooltip("勾上 = 捡到后学会回声（按 Q 发波，能把敌人照出来）。")]
+    public bool unlockEcho;
+
     [Tooltip("勾上 = 捡到后学会二段跳（跳到空中还能再跳一次）。")]
     public bool unlockDoubleJump;
 
@@ -35,6 +41,8 @@ public class AbilityPickup2D : MonoBehaviour
         var pc = other.GetComponent<PlayerController2D>();
         if (pc == null) return;
 
+        if (unlockJump)       pc.UnlockJump();          // v51
+        if (unlockEcho)       pc.UnlockEcho();          // v52
         if (unlockDoubleJump) pc.UnlockDoubleJump();
         if (unlockDash)       pc.UnlockDash();
         if (unlockWallJump)   pc.UnlockWallJump();   // v8: 蹬墙跳道具

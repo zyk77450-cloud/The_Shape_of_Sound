@@ -84,8 +84,10 @@ namespace PixelFx
         {
             if (Instance == this) Instance = null;
             if (_frame != null) _frame.Dispose();
-            if (_mat != null) Destroy(_mat);
-            if (_outTex != null) Destroy(_outTex);
+            // 修复：这里原本会 Destroy(_mat) / Destroy(_outTex)。
+            // 但全屏 RawImage 是子物体，销毁顺序在后，同一帧还会再渲染一次，
+            // 于是取到"已销毁的材质"报 MissingReferenceException（切场景时报两条）。
+            // 运行时创建的材质/贴图交给 Unity 随场景卸载回收即可，不必手动 Destroy。
         }
 
         public void Register(IPixelFxDrawer d)
